@@ -1,0 +1,106 @@
+project:
+  name: "Smart Meeting Room Booking System"
+  system_name_vi: "Hệ thống Đặt Phòng Họp Thông Minh"
+  version: "1.4"
+  brd_version: "1.4"
+  description: "Nền tảng đặt phòng họp thông minh hỗ trợ kiểm soát lịch theo thời gian thực, đa phương thức thanh toán an toàn, quy tắc kiểm soát 2 người (Two-Man Rule), hạn mức tín dụng và cơ chế phòng vệ kiến trúc (Saga Auto-Refund, Outbox Pattern, Anti Double-Spending)."
+  domain: "Smart Workspace & Meeting Room Management"
+  status: "Post-Audit Hardened (Ready for Sprint 1 Development)"
+  last_sync: "2026-10-05"
+
+business_context:
+  overview: |
+    Giải quyết triệt để vấn đề xung đột lịch (Double-booking), phòng trống ảo và găm phòng đầu cơ tại các tòa nhà văn phòng,
+    coworking space. Nâng thời gian giữ chỗ thanh toán online lên 10 phút, kiểm soát chặt chẽ sổ quỹ tiền mặt và nợ công ty.
+  key_objectives:
+    - Loại bỏ 100% tình trạng đặt trùng phòng (Double-booking) bằng Redis Redlock + PostgreSQL Partial Unique Index.
+    - Bảo vệ tài chính: Tự động hoàn tiền khi nhận Webhook trễ (Saga Auto-Refund), triệt tiêu Double-spending ví thành viên.
+    - Phòng chống gian lận tiền mặt tại quầy bằng cơ chế Two-Man Rule duyệt OTP Quản lý ca trực.
+    - Chính sách hủy phòng phân tầng công bằng (>=24h: 100%, 2h-24h: 80%, <2h: 0%) ngăn chặn găm giữ phòng.
+
+architectural_risks_status:
+  R01_late_webhook_double_booking:
+    status: "MITIGATED"
+    solution: "Saga Orchestrator kiểm tra quyền sở hữu slot; nếu slot đã mất thì kích hoạt Auto-Refund Worker hoàn tiền 100% qua API cổng thanh toán."
+  R02_wallet_double_spending:
+    status: "MITIGATED"
+    solution: "Pessimistic Locking (SELECT ... FOR UPDATE) trên bảng member_wallets, ràng buộc chk_wallet_non_negative và bắt buộc Idempotency-Key header."
+  R03_short_payment_ttl_timeout:
+    status: "MITIGATED"
+    solution: "Nâng TTL khóa phòng từ 5 phút lên 10 phút (600s), bảo đảm đủ thời gian nhận SMS/Smart OTP và sinh trắc học ngân hàng."
+  R04_inventory_hoarding_cancel_loophole:
+    status: "MITIGATED"
+    solution: "Chính sách hủy đa tầng (phạt 20% trong khoảng 2h-24h) và giới hạn tối đa 2 lần hủy miễn phí mỗi tháng."
+  R05_cash_refund_embezzlement:
+    status: "MITIGATED"
+    solution: "Quy tắc Two-Man Rule: Lễ tân bấm hủy phải có mã OTP xác thực từ Quản lý ca trực (Shift Supervisor) mới được sinh phiếu chi hoàn tiền mặt."
+  R06_uncapped_corporate_debt:
+    status: "MITIGATED"
+    solution: "Bổ sung cột credit_limit và current_debt; API từ chối với mã 422 CREDIT_LIMIT_EXCEEDED nếu vượt trần."
+  R07_lost_notifications_and_qr:
+    status: "MITIGATED"
+    solution: "Triển khai Transactional Outbox Pattern với bảng OUTBOX_EVENTS và Relay Worker để bảo đảm At-least-once delivery."
+
+system_architecture:
+  pattern: "Modular Monolith with Event-Driven Outbox & Saga Compensation"
+  tech_stack:
+    backend: "Node.js (NestJS / TypeScript)"
+    frontend_admin: "Next.js (React) + TypeScript + Tailwind CSS (Web Admin cho Lễ tân, Quản lý ca, Kế toán)"
+    mobile_app: "React Native / Flutter (Mobile App cho Khách vãng lai và Thành viên)"
+    database:
+      primary: "PostgreSQL 16 (Pessimistic Locking, Check Constraints, Outbox Events)"
+      caching_locking: "Redis 7 Cluster (Redlock 10-min TTL, Idempotency Cache 24h)"
+    message_queue: "RabbitMQ / Apache Kafka"
+    payment_gateways:
+      - "VNPAY"
+      - "MoMo"
+      - "ZaloPay"
+
+recent_architecture_changelog:
+  - version: "1.4"
+    date: "2026-10-05"
+    author: "PM Agent / Architect Agent / BA Agent"
+    changes:
+      - "Thực thi toàn bộ các Mandatory Action Items từ báo cáo design_evaluation_report.md."
+      - "Nâng cấp đặc tả BRD lên v1.4: Tăng TTL Online Payment lên 10 phút, bổ sung chính sách hủy đa tầng, Two-Man Rule duyệt chi tiền mặt và hạn mức công nợ."
+      - "Kiến trúc hệ thống: Bổ sung Saga Orchestration xử lý Late Webhook và Transactional Outbox Pattern cho RabbitMQ."
+      - "CSDL ERD: Thêm bảng OUTBOX_EVENTS, bổ sung credit_limit, current_debt, supervisor_otp_approved_by và constraint chk_wallet_non_negative."
+      - "API Contract: Chuẩn hóa booking_api.yaml với Idempotency-Key header bắt buộc và mã lỗi 422 CREDIT_LIMIT_EXCEEDED."
+      - "Kiểm thử BDD: Bổ sung wallet_double_spending.feature, late_webhook_refund.feature và cập nhật cancellation.feature."
+
+repository_structure:
+  01-requirements:
+    description: "Yêu cầu kinh doanh, đặc tả BRD v1.4, User Stories và Acceptance Criteria theo từng luồng thanh toán."
+    key_files:
+      - "brd_v1.4.md"
+      - "user_stories.md"
+      - "acceptance_criteria/payment_flows.md"
+      - "acceptance_criteria/booking_flow.md"
+      - "acceptance_criteria/cancellation_policy.md"
+  02-architecture:
+    description: "Thiết kế kỹ thuật, sơ đồ hệ thống, CSDL ERD PostgreSQL và OpenAPI contracts."
+    key_files:
+      - "system_design.md"
+      - "database_erd.md"
+      - "api_contracts/booking_api.yaml"
+      - "api_contracts/openapi.yaml"
+  03-project-management:
+    description: "Quản trị dự án: Lộ trình Roadmap, Sprint Logs, Changelog v1.4, Báo cáo thẩm định."
+    key_files:
+      - "project_context.yaml"
+      - "design_evaluation_report.md"
+      - "changelog_v1.4.md"
+      - "roadmap.md"
+      - "sprint_logs/sprint_1_log.md"
+      - "sprint_logs/sprint_2_log.md"
+      - "issue_tracker.md"
+      - "meeting_minutes/"
+  04-testing:
+    description: "Kịch bản kiểm thử BDD Gherkin tự động hóa."
+    key_files:
+      - "bdd_features/online_payment.feature"
+      - "bdd_features/wallet_payment.feature"
+      - "bdd_features/wallet_double_spending.feature"
+      - "bdd_features/late_webhook_refund.feature"
+      - "bdd_features/cash_payment.feature"
+      - "bdd_features/cancellation.feature"

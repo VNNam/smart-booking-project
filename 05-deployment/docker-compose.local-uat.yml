@@ -1,0 +1,150 @@
+version: '3.8'
+
+# ==============================================================================
+# SMART MEETING ROOM BOOKING PLATFORM - LOCAL FALLBACK UAT ENVIRONMENT
+# Use this when cloud free-tier services reach quotas or require offline testing.
+# Command: docker compose -f 05-deployment/docker-compose.local-uat.yml up -d
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. PostgreSQL 16 Database with Schema Initializer
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: smart_booking_uat_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: smart_admin
+      POSTGRES_PASSWORD: uat_password_secret_2026
+      POSTGRES_DB: smart_booking_uat_db
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_uat_data:/var/lib/postgresql/data
+      - ../src/database/schema_v1.sql:/docker-entrypoint-initdb.d/01_schema_v1.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smart_admin -d smart_booking_uat_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smart_booking_uat_net
+
+  # ----------------------------------------------------------------------------
+  # 2. Redis 7 In-Memory Cache & Distributed Lock Manager
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: smart_booking_uat_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "uat_redis_secret_2026"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_uat_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "uat_redis_secret_2026", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smart_booking_uat_net
+
+  # ----------------------------------------------------------------------------
+  # 3. Backend API Service (Node.js / NestJS)
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: smart_booking_uat_backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://smart_admin:uat_password_secret_2026@postgres:5432/smart_booking_uat_db
+      REDIS_URL: redis://:uat_redis_secret_2026@redis:6379
+      JWT_SECRET: c8f8b3c2980173295847e098df241746b149b1093847af2b6839174628394018
+      JWT_EXPIRES_IN: 8h
+      IDEMPOTENCY_TTL_SECONDS: 86400
+      LOCK_TTL_SECONDS: 600
+      CANCELLATION_FREE_MONTHLY_LIMIT: 2
+      SUPERVISOR_OTP_BYPASS_DEV: "false"
+      VNPAY_TMN_CODE: SMARTUAT1
+      VNPAY_HASH_SECRET: RAHDefaultSecretKeyMockSandboxUAT2026
+      VNPAY_URL: http://mock-payment:4000/vnpay/pay
+      VNPAY_RETURN_URL: http://localhost:3001/payment-callback
+      WEBHOOK_SECRET_KEY: whsec_mock_uat_testing_key_2026
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/v1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - smart_booking_uat_net
+
+  # ----------------------------------------------------------------------------
+  # 4. Web Admin & PWA Frontend (Next.js 14)
+  # ----------------------------------------------------------------------------
+  admin-frontend:
+    build:
+      context: ../frontend/admin
+      dockerfile: Dockerfile
+    container_name: smart_booking_uat_frontend
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://localhost:3000/api/v1
+      NEXT_PUBLIC_APP_ENV: uat_local
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - smart_booking_uat_net
+
+  # ----------------------------------------------------------------------------
+  # 5. Mock Payment Gateway & Webhook Simulator (Zero-Cost Local Sandbox)
+  # ----------------------------------------------------------------------------
+  mock-payment:
+    image: node:18-alpine
+    container_name: smart_booking_uat_mock_payment
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    command: >
+      node -e "
+      const http = require('http');
+      const server = http.createServer((req, res) => {
+        if (req.url === '/health') {
+          res.writeHead(200, {'Content-Type': 'application/json'});
+          return res.end(JSON.stringify({ status: 'ready', mock: 'vnpay_momo' }));
+        }
+        res.writeHead(200, {'Content-Type': 'application/json'});
+        res.end(JSON.stringify({ response_code: '00', message: 'MOCK_PAYMENT_SUCCESS', txn_ref: Date.now() }));
+      });
+      server.listen(4000, () => console.log('Mock Payment Gateway listening on port 4000'));
+      "
+    networks:
+      - smart_booking_uat_net
+
+networks:
+  smart_booking_uat_net:
+    driver: bridge
+    name: smart_booking_uat_network
+
+volumes:
+  postgres_uat_data:
+    name: smart_booking_uat_pgdata
+  redis_uat_data:
+    name: smart_booking_uat_redisdata

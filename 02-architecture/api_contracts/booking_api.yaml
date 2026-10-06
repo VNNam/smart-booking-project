@@ -1,0 +1,427 @@
+openapi: 3.0.3
+info:
+  title: Smart Meeting Room Booking API
+  description: |
+    OpenAPI 3.0 contract cho luồng đặt phòng họp đa phương thức thanh toán, phân quyền vai trò (RBAC) 
+    và các cơ chế phòng vệ kiến trúc (Idempotency-Key, Credit Limit, Two-Man Rule) theo BRD v1.4.
+  version: 1.4.0
+servers:
+  - url: https://api.smartbooking.local/v1
+    description: Production-Ready Gateway Server
+
+security:
+  - bearerAuth: []
+
+paths:
+  /bookings:
+    post:
+      summary: Tạo lượt đặt phòng họp (Hỗ trợ 4 phương thức thanh toán & Bắt buộc Idempotency)
+      description: |
+        Xử lý đặt phòng theo các quy tắc nghiệp vụ BRD v1.4 đã được thẩm định an toàn:
+        * **ONLINE_GATEWAY**: Cho Khách vãng lai / Thành viên (Mobile App). Khóa phòng 10 phút (TTL 600s). Trạng thái `LOCKED_PENDING_ONLINE`. Hỗ trợ Auto-Refund nếu Webhook đến trễ khi phòng đã mất.
+        * **PREPAID_WALLET**: Dành cho Thành viên (Mobile App). Trừ số dư ví tức thì qua Pessimistic Lock (`FOR UPDATE`). Trạng thái `CONFIRMED`. Trả về 402 nếu thiếu số dư.
+        * **CASH_ON_ARRIVAL**: Chỉ dành cho Quản lý / Lễ tân (Web Admin). Thu tiền tại quầy. Trạng thái `CONFIRMED_PAID`. Tự động ghi sổ quỹ `CASH_BOOK_LOGS`. Trả về 403 nếu Customer gọi.
+        * **POSTPAID_DEBT**: Chỉ dành cho Quản lý / Lễ tân (Web Admin). Ghi nhận công nợ. Kiểm tra `current_debt + price <= credit_limit`. Trả về 422 nếu vượt trần.
+      operationId: createBooking
+      tags:
+        - Bookings
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+            example: "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb99"
+          description: Khóa định danh giao dịch duy nhất từ client để loại trừ trùng lặp request khi bấm đúp hoặc mạng thử lại.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBookingRequest'
+      responses:
+        '201':
+          description: Đặt phòng khởi tạo thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingResponse'
+              examples:
+                online_payment:
+                  summary: Khách vãng lai - Thanh toán trực tuyến (10 phút TTL)
+                  value:
+                    id: "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+                    booking_code: "BKG-202610-001"
+                    room_id: "8c1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6a"
+                    slot_id: "7a1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6b"
+                    booking_status: "LOCKED_PENDING_ONLINE"
+                    payment_method: "ONLINE_GATEWAY"
+                    payment_status: "PENDING"
+                    total_amount: 350000
+                    lock_expires_at: "2026-10-05T23:10:00Z"
+                    payment_url: "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?orderId=BKG-202610-001"
+                prepaid_wallet:
+                  summary: Thành viên - Thanh toán bằng ví (Trừ tức thì an toàn)
+                  value:
+                    id: "6b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6c"
+                    booking_code: "BKG-202610-002"
+                    room_id: "8c1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6a"
+                    slot_id: "7a1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6b"
+                    booking_status: "CONFIRMED"
+                    payment_method: "PREPAID_WALLET"
+                    payment_status: "PAID"
+                    total_amount: 350000
+                    lock_expires_at: null
+                    wallet_balance_after: 1650000
+                cash_walkin:
+                  summary: Lễ tân - Đặt phòng thu tiền mặt tại quầy
+                  value:
+                    id: "5b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6e"
+                    booking_code: "BKG-202610-003"
+                    room_id: "8c1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6a"
+                    slot_id: "7a1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6b"
+                    booking_status: "CONFIRMED_PAID"
+                    payment_method: "CASH_ON_ARRIVAL"
+                    payment_status: "PAID"
+                    total_amount: 350000
+                    cash_book_entry_id: "cb-88123-cash-in"
+                postpaid_debt:
+                  summary: Lễ tân - Đặt phòng công nợ trong hạn mức
+                  value:
+                    id: "4b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6f"
+                    booking_code: "BKG-202610-004"
+                    room_id: "8c1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6a"
+                    slot_id: "7a1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6b"
+                    booking_status: "CONFIRMED_DEBT"
+                    payment_method: "POSTPAID_DEBT"
+                    payment_status: "UNPAID"
+                    total_amount: 350000
+                    corporate_debt_account: "CORP-FINANCE-DEPT"
+        '400':
+          description: Dữ liệu gửi lên không hợp lệ hoặc thiếu Idempotency-Key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "MISSING_IDEMPOTENCY_KEY"
+                message: "Bắt buộc phải cung cấp header Idempotency-Key để bảo đảm an toàn giao dịch."
+        '402':
+          description: Payment Required - Số dư ví thành viên không đủ thanh toán
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "INSUFFICIENT_WALLET_BALANCE"
+                message: "Số dư ví thành viên hiện tại (100.000 VND) không đủ để thanh toán phòng họp (350.000 VND). Vui lòng nạp thêm tiền."
+        '403':
+          description: Forbidden - Vai trò người dùng không có quyền sử dụng phương thức thanh toán này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "PAYMENT_METHOD_FORBIDDEN"
+                message: "Phương thức CASH_ON_ARRIVAL hoặc POSTPAID_DEBT chỉ được phép thực hiện bởi Quản trị viên / Lễ tân trên Web Admin."
+        '409':
+          description: Conflict - Phòng họp đã có người giữ chỗ hoặc vừa được xác nhận
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "ROOM_SLOT_UNAVAILABLE"
+                message: "Phòng họp đã được giữ chỗ trong khung giờ này bởi khách hàng khác. Vui lòng chọn khung giờ khác."
+        '422':
+          description: Unprocessable Entity - Vượt hạn mức tín dụng công nợ (Credit Limit Exceeded)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "CREDIT_LIMIT_EXCEEDED"
+                message: "Hạn mức công nợ hiện tại của doanh nghiệp không đủ để thanh toán đơn đặt phòng này (Dư nợ hiện tại: 19.500.000 VND / Hạn mức: 20.000.000 VND / Giá phòng: 1.000.000 VND)."
+
+  /bookings/{id}/cancel:
+    post:
+      summary: Yêu cầu hủy đặt phòng phân tầng & Hoàn tiền (Two-Man Rule cho tiền mặt)
+      description: |
+        Hủy đơn đặt phòng và tính toán hoàn tiền phân tầng theo BRD v1.4:
+        * **>= 24 giờ:** Hoàn 100% tiền (0% phí phạt).
+        * **2h - 24 giờ:** Hoàn 80% tiền (20% phí phạt).
+        * **< 2 giờ:** Hoàn 0% tiền (100% phí phạt, trạng thái `CANCELLED_NO_REFUND`).
+        * **Hủy quá 2 lần/tháng:** Phạt thêm 30% (tỷ lệ hoàn tiền tối đa 70%).
+        * **Quy tắc Two-Man Rule:** Nếu phương thức là `CASH_ON_ARRIVAL` và `refund_amount > 0`, bắt buộc phải cung cấp mã `supervisor_otp` hợp lệ từ Quản lý ca trực. Tự động xuất phiếu chi `CASH_OUT_REFUND` vào bảng `CASH_BOOK_LOGS`.
+      operationId: cancelBooking
+      tags:
+        - Bookings
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ID của đơn đặt phòng cần hủy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelBookingRequest'
+      responses:
+        '200':
+          description: Hủy phòng và xử lý hoàn tiền thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancellationResponse'
+        '400':
+          description: Yêu cầu không hợp lệ (Sai OTP, thiếu OTP hoặc đơn đã hủy)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                otp_required:
+                  summary: Thiếu OTP Quản lý ca trực (Two-Man Rule)
+                  value:
+                    code: "OTP_REQUIRED"
+                    message: "Hủy đơn hoàn tiền mặt yêu cầu mã OTP xác thực từ Quản lý ca trực (Two-Man Rule)."
+                invalid_otp:
+                  summary: Sai mã OTP Quản lý ca trực
+                  value:
+                    code: "INVALID_OTP"
+                    message: "Mã OTP duyệt chi của Quản lý ca trực không chính xác hoặc đã hết hạn."
+                already_cancelled:
+                  summary: Đơn đã hủy trước đó
+                  value:
+                    code: "ALREADY_CANCELLED"
+                    message: "Đơn đặt phòng này đã bị hủy hoặc hết hạn trước đó."
+        '404':
+          description: Không tìm thấy đơn đặt phòng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "BOOKING_NOT_FOUND"
+                message: "Không tìm thấy thông tin đơn đặt phòng yêu cầu."
+
+  /bookings/{id}/request-refund-otp:
+    post:
+      summary: Phát sinh và gửi mã OTP tới Quản lý ca trực (Two-Man Rule)
+      description: Hệ thống sinh mã OTP 6 chữ số (hiệu lực 60s) và gửi tới SMS/App của Quản lý ca trực.
+      operationId: requestRefundOtp
+      tags:
+        - Bookings
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Đã gửi mã OTP tới Quản lý ca trực
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestRefundOtpResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    PaymentMethodEnum:
+      type: string
+      enum:
+        - ONLINE_GATEWAY
+        - PREPAID_WALLET
+        - CASH_ON_ARRIVAL
+        - POSTPAID_DEBT
+      description: Phương thức thanh toán được chọn
+
+    BookingStatusEnum:
+      type: string
+      enum:
+        - LOCKED_PENDING_ONLINE
+        - CONFIRMED
+        - CONFIRMED_PAID
+        - CONFIRMED_DEBT
+        - CANCELLED
+        - CANCELLED_NO_REFUND
+        - EXPIRED
+
+    PaymentStatusEnum:
+      type: string
+      enum:
+        - PENDING
+        - PAID
+        - REFUNDED
+        - UNPAID
+
+    CreateBookingRequest:
+      type: object
+      required:
+        - room_id
+        - slot_id
+        - payment_method
+      properties:
+        room_id:
+          type: string
+          format: uuid
+          description: ID của phòng họp
+        slot_id:
+          type: string
+          format: uuid
+          description: ID của khung giờ đặt
+        payment_method:
+          $ref: '#/components/schemas/PaymentMethodEnum'
+        gateway_provider:
+          type: string
+          enum: [VNPAY, MOMO, ZALOPAY]
+          description: Bắt buộc nếu payment_method là ONLINE_GATEWAY
+        corporate_debt_account:
+          type: string
+          description: Mã tài khoản công nợ của doanh nghiệp (Bắt buộc nếu payment_method là POSTPAID_DEBT)
+        customer_name:
+          type: string
+          description: Họ tên khách hàng (Dùng khi Lễ tân đặt hộ tại quầy)
+        customer_phone:
+          type: string
+          description: Số điện thoại khách hàng (Dùng khi Lễ tân đặt hộ tại quầy)
+        notes:
+          type: string
+          maxLength: 500
+          description: Ghi chú cuộc họp
+
+    BookingResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        booking_code:
+          type: string
+        room_id:
+          type: string
+          format: uuid
+        slot_id:
+          type: string
+          format: uuid
+        booking_status:
+          $ref: '#/components/schemas/BookingStatusEnum'
+        payment_method:
+          $ref: '#/components/schemas/PaymentMethodEnum'
+        payment_status:
+          $ref: '#/components/schemas/PaymentStatusEnum'
+        total_amount:
+          type: number
+        lock_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        payment_url:
+          type: string
+          nullable: true
+        wallet_balance_after:
+          type: number
+          nullable: true
+        cash_book_entry_id:
+          type: string
+          nullable: true
+        corporate_debt_account:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          nullable: true
+
+    CancelBookingRequest:
+      type: object
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          description: Lý do hủy phòng họp
+          example: "Khách đổi lịch công tác đột xuất"
+        supervisor_otp:
+          type: string
+          minLength: 6
+          maxLength: 6
+          description: Mã OTP 6 số của Quản lý ca trực (Bắt buộc với tiền mặt theo Two-Man Rule)
+          example: "888999"
+        payment_method:
+          $ref: '#/components/schemas/PaymentMethodEnum'
+
+    CancellationResponse:
+      type: object
+      properties:
+        booking_id:
+          type: string
+          format: uuid
+        booking_code:
+          type: string
+          example: "BKG-202610-003"
+        status:
+          $ref: '#/components/schemas/BookingStatusEnum'
+        refund_amount:
+          type: number
+          example: 280000
+        penalty_fee:
+          type: number
+          example: 70000
+        refund_percentage:
+          type: number
+          example: 80
+        cash_book_entry_id:
+          type: string
+          nullable: true
+          example: "CASH-OUT-202610-001"
+        refund_status:
+          type: string
+          enum: [REFUNDED_CASH, REFUNDED_WALLET, PENDING_GATEWAY, NO_REFUND]
+          example: "REFUNDED_CASH"
+        approved_by_supervisor:
+          type: string
+          nullable: true
+          example: "Nguyễn Quản Lý"
+        cancelled_at:
+          type: string
+          format: date-time
+
+    RequestRefundOtpResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Đã gửi mã OTP 6 số tới số điện thoại Quản lý ca trực."
+        expires_in_seconds:
+          type: integer
+          example: 60
+        supervisor_name:
+          type: string
+          example: "Nguyễn Quản Lý (Trưởng ca trực)"

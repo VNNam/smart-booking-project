@@ -1,0 +1,219 @@
+openapi: 3.0.3
+info:
+  title: Smart Booking API
+  description: API Contracts cho hệ thống đặt lịch thông minh Smart Booking System
+  version: 1.0.0
+servers:
+  - url: https://api.smartbooking.local/v1
+    description: Development Server
+
+paths:
+  /auth/login:
+    post:
+      summary: Đăng nhập khách hàng hoặc nhân viên
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, password]
+              properties:
+                phone:
+                  type: string
+                  example: "+84901234567"
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Đăng nhập thành công, trả về access token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    example: Bearer
+                  expires_in:
+                    type: integer
+                    example: 3600
+
+  /services:
+    get:
+      summary: Lấy danh sách dịch vụ và bảng giá
+      tags:
+        - Services
+      parameters:
+        - name: branch_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Danh sách dịch vụ
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Service'
+
+  /slots/available:
+    get:
+      summary: Tra cứu các khung giờ còn trống (Real-time slots)
+      tags:
+        - Slots
+      parameters:
+        - name: service_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-10-15"
+      responses:
+        '200':
+          description: Danh sách slot khả dụng
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Slot'
+
+  /bookings/hold:
+    post:
+      summary: Khóa tạm thời slot (Hold 10 phút) để thanh toán
+      tags:
+        - Bookings
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slot_id, service_id]
+              properties:
+                slot_id:
+                  type: string
+                  format: uuid
+                service_id:
+                  type: string
+                  format: uuid
+                notes:
+                  type: string
+      responses:
+        '201':
+          description: Giữ chỗ thành công trong 10 phút
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  booking_id:
+                    type: string
+                    format: uuid
+                  slot_id:
+                    type: string
+                    format: uuid
+                  lock_expires_at:
+                    type: string
+                    format: date-time
+                  payment_url:
+                    type: string
+                    example: "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?..."
+        '409':
+          description: Conflict - Slot đã bị người khác chọn trước
+
+  /bookings/{id}/cancel:
+    post:
+      summary: Yêu cầu hủy lịch và hoàn tiền
+      tags:
+        - Bookings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Hủy lịch thành công kèm thông tin hoàn tiền
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  booking_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    example: CANCELLED
+                  refund_amount:
+                    type: number
+                  refund_status:
+                    type: string
+                    example: PENDING_GATEWAY
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Service:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        price:
+          type: number
+        duration_minutes:
+          type: integer
+    Slot:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [AVAILABLE, LOCKED, BOOKED]
