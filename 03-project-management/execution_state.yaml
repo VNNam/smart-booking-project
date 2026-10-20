@@ -172,3 +172,37 @@ sprints:
         description: "Operator logs into free-tier services, provisions Neon/Upstash/Render/Vercel, applies schema_v1.sql, and begins UAT testing."
         status: "PENDING_OPERATOR_ACTION"
 
+  momo_v3_integration:
+    name: "MoMo Payment API v3 Hardened Integration"
+    goal: "Implement full MoMo API v3: Strategy pattern routing (6 methods), HMAC-SHA256 signature, IPN transaction & Saga auto-refund, and fail-safe timeout worker."
+    status: "COMPLETED"
+    completed_at: "2026-10-20T19:04:00Z"
+    tasks:
+      - id: "momo_v3_1"
+        name: "MoMo API v3 Core Service, Strategy Pattern & Signature Utility"
+        agent: "@Dev_Agent"
+        target_file: "src/services/momo/MoMoPaymentService.ts"
+        status: "DONE"
+        completed_at: "2026-10-20T19:00:00Z"
+
+      - id: "momo_v3_2"
+        name: "Fail-safe Timeout Worker & MoMo Query API Reconciler"
+        agent: "@Dev_Agent"
+        target_file: "src/services/momo/MoMoTimeoutWorker.ts"
+        status: "DONE"
+        completed_at: "2026-10-20T19:01:00Z"
+
+      - id: "momo_v3_3"
+        name: "MoMo v3 Unit & Integration Tests Suite"
+        agent: "@QA_Agent"
+        target_file: "test/services/momo_payment.test.ts"
+        status: "DONE"
+        completed_at: "2026-10-20T19:02:00Z"
+
+      - id: "momo_v3_4"
+        name: "MoMo v3 Architecture & Acceptance Criteria Documentation"
+        agent: "@Architect_Agent / @BA_Agent"
+        target_file: "02-architecture/momo_payment_v3_architecture.md"
+        status: "DONE"
+        completed_at: "2026-10-20T19:03:00Z"
+

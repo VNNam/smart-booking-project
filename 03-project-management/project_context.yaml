@@ -57,6 +57,14 @@ system_architecture:
       - "ZaloPay"
 
 recent_architecture_changelog:
+  - version: "1.4.1"
+    date: "2026-10-20"
+    author: "Senior Backend Engineer / Architect Agent"
+    changes:
+      - "Tích hợp hoàn chỉnh Cổng thanh toán MoMo (API v3) đa phương thức (Strategy Pattern cho 6 hình thức thanh toán)."
+      - "Triển khai thuật toán chữ ký HMAC-SHA256 theo thứ tự từ điển A-Z, kiểm tra chữ ký an toàn bằng timingSafeEqual."
+      - "Xử lý Webhook IPN an toàn trong Database Transaction, chống Double-Booking bằng Saga Auto-Refund khi gặp Late Webhook."
+      - "Xây dựng Fail-safe Timeout Worker định kỳ quét đơn quá hạn 10 phút và giải phóng phòng qua MoMo Query API."
   - version: "1.4"
     date: "2026-10-05"
     author: "PM Agent / Architect Agent / BA Agent"
@@ -76,6 +84,7 @@ repository_structure:
       - "frontend_scope.md"
       - "user_stories.md"
       - "acceptance_criteria/payment_flows.md"
+      - "acceptance_criteria/momo_payment.md"
       - "acceptance_criteria/booking_flow.md"
       - "acceptance_criteria/cancellation_policy.md"
       - "acceptance_criteria/admin_cash_booking.md"
@@ -84,6 +93,7 @@ repository_structure:
     key_files:
       - "system_design.md"
       - "frontend_architecture.md"
+      - "momo_payment_v3_architecture.md"
       - "database_erd.md"
       - "api_contracts/booking_api.yaml"
       - "api_contracts/openapi.yaml"

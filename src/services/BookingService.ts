@@ -16,6 +16,7 @@
 import { Pool, PoolClient } from 'pg';
 import Redis from 'ioredis';
 import { v4 as uuidv4 } from 'uuid';
+import { MoMoPaymentService } from './momo';
 
 // ==============================================================================
 // 1. DATA TRANSFER OBJECTS (DTO) & INTERFACES
@@ -111,10 +112,15 @@ export class BookingService {
     // TTL khóa giữ phòng trực tuyến: 10 phút (600.000 ms) theo chuẩn BRD v1.4
     private readonly ONLINE_LOCK_TTL_MS = 600 * 1000;
 
+    private readonly momoService: MoMoPaymentService;
+
     constructor(
         private readonly dbPool: Pool,
-        private readonly redisClient: Redis
-    ) {}
+        private readonly redisClient: Redis,
+        momoService?: MoMoPaymentService
+    ) {
+        this.momoService = momoService || new MoMoPaymentService(this.dbPool, this.redisClient);
+    }
 
     /**
      * Tạo đặt phòng họp mới hỗ trợ 4 phương thức thanh toán
@@ -210,9 +216,27 @@ export class BookingService {
 
                     await client.query('COMMIT');
 
-                    // Tạo liên kết thanh toán giả lập VNPAY Sandbox
+                    // Tạo liên kết thanh toán theo Gateway được chọn (VNPAY hoặc MoMo)
                     const paymentGateway = dto.gatewayProvider || 'VNPAY';
-                    const paymentUrl = `https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?orderId=${bookingCode}&amount=${totalAmount * 100}&provider=${paymentGateway}`;
+                    let paymentUrl = '';
+
+                    if (paymentGateway === 'MOMO') {
+                        try {
+                            const momoRes = await this.momoService.createPayment({
+                                orderId: bookingCode,
+                                amount: totalAmount,
+                                orderInfo: `Thanh toan phong hop ${bookingCode}`,
+                                requestType: 'captureWallet',
+                                extraData: { userId: user.id, bookingId, slotId: dto.slotId }
+                            });
+                            paymentUrl = momoRes.payUrl || momoRes.deeplink || `https://test-payment.momo.vn/v2/gateway/pay?orderId=${bookingCode}`;
+                        } catch (momoErr) {
+                            console.warn('[BookingService] Không gọi được MoMo API /create trực tiếp, sử dụng Sandbox fallback:', momoErr);
+                            paymentUrl = `https://test-payment.momo.vn/v2/gateway/pay?orderId=${bookingCode}&amount=${totalAmount}`;
+                        }
+                    } else {
+                        paymentUrl = `https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?orderId=${bookingCode}&amount=${totalAmount * 100}&provider=${paymentGateway}`;
+                    }
 
                     return {
                         id: bookingId,

@@ -29,6 +29,7 @@ import { Pool, PoolClient } from 'pg';
 import Redis from 'ioredis';
 import * as crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
+import { MoMoPaymentService, MoMoIpnPayload, MoMoIpnProcessResult } from './momo';
 
 export interface VnpayIpnPayload {
     vnp_TmnCode: string;
@@ -57,13 +58,24 @@ export interface IpnProcessResult {
 
 export class PaymentWebhookService {
     private readonly vnpayHashSecret: string;
+    private readonly momoPaymentService: MoMoPaymentService;
 
     constructor(
         private readonly dbPool: Pool,
         private readonly redisClient: Redis,
-        hashSecret = process.env.VNPAY_HASH_SECRET || 'SANDBOX_HASH_SECRET_KEY_123456'
+        hashSecret = process.env.VNPAY_HASH_SECRET || 'SANDBOX_HASH_SECRET_KEY_123456',
+        momoPaymentService?: MoMoPaymentService
     ) {
         this.vnpayHashSecret = hashSecret;
+        this.momoPaymentService =
+            momoPaymentService || new MoMoPaymentService(this.dbPool, this.redisClient);
+    }
+
+    /**
+     * Xử lý Webhook IPN từ cổng thanh toán MoMo API v3 kèm Saga Orchestration
+     */
+    async processMomoIpn(payload: MoMoIpnPayload): Promise<MoMoIpnProcessResult> {
+        return this.momoPaymentService.processIpn(payload);
     }
 
     /**
