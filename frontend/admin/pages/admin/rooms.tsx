@@ -179,28 +179,31 @@ function RoomManagementPage() {
                 <div className="flex border-b border-slate-800 space-x-2 text-xs font-semibold">
                     <button
                         onClick={() => setActiveTab('ROOMS')}
-                        className={`pb-3 px-4 transition-all relative ${activeTab === 'ROOMS'
+                        className={`pb-3 px-4 transition-all relative ${
+                            activeTab === 'ROOMS'
                                 ? 'text-emerald-400 border-b-2 border-emerald-400 font-bold'
                                 : 'text-slate-400 hover:text-slate-200'
-                            }`}
+                        }`}
                     >
                         🚪 Danh Mục Phòng Họp ({rooms.length})
                     </button>
                     <button
                         onClick={() => setActiveTab('PRICING')}
-                        className={`pb-3 px-4 transition-all relative ${activeTab === 'PRICING'
+                        className={`pb-3 px-4 transition-all relative ${
+                            activeTab === 'PRICING'
                                 ? 'text-emerald-400 border-b-2 border-emerald-400 font-bold'
                                 : 'text-slate-400 hover:text-slate-200'
-                            }`}
+                        }`}
                     >
                         📈 Bảng Giá Động & Khung Giờ ({pricingRules.length})
                     </button>
                     <button
                         onClick={() => setActiveTab('EQUIPMENT')}
-                        className={`pb-3 px-4 transition-all relative ${activeTab === 'EQUIPMENT'
+                        className={`pb-3 px-4 transition-all relative ${
+                            activeTab === 'EQUIPMENT'
                                 ? 'text-emerald-400 border-b-2 border-emerald-400 font-bold'
                                 : 'text-slate-400 hover:text-slate-200'
-                            }`}
+                        }`}
                     >
                         📽️ Tài Sản & Trang Thiết Bị ({equipments.length})
                     </button>
@@ -216,12 +219,13 @@ function RoomManagementPage() {
                                         <div className="flex items-start justify-between">
                                             <div>
                                                 <h3 className="text-base font-bold text-white">{room.name}</h3>
-                                                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold mt-1 ${room.roomType === 'BOARDROOM'
+                                                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold mt-1 ${
+                                                    room.roomType === 'BOARDROOM'
                                                         ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
                                                         : room.roomType === 'EXECUTIVE'
-                                                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                                                            : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                                    }`}>
+                                                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                                        : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                                }`}>
                                                     {room.roomType}
                                                 </span>
                                             </div>
@@ -257,10 +261,11 @@ function RoomManagementPage() {
                                     <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
                                         <button
                                             onClick={() => toggleMaintenance(room.id)}
-                                            className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${room.isActive
+                                            className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                                                room.isActive
                                                     ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20'
                                                     : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20'
-                                                }`}
+                                            }`}
                                         >
                                             {room.isActive ? 'Tạm ngưng bảo trì' : 'Mở lại phòng'}
                                         </button>
@@ -347,12 +352,13 @@ function RoomManagementPage() {
                                             <td className="py-3.5 font-mono text-slate-400">{eq.serialNumber}</td>
                                             <td className="py-3.5 text-slate-300">{eq.roomName}</td>
                                             <td className="py-3.5">
-                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${eq.status === 'OPERATIONAL'
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                                    eq.status === 'OPERATIONAL'
                                                         ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
                                                         : eq.status === 'MAINTENANCE'
-                                                            ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                                                            : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
-                                                    }`}>
+                                                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                                                        : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                                                }`}>
                                                     {eq.status === 'OPERATIONAL' ? '🟢 Tốt' : eq.status === 'MAINTENANCE' ? '🟡 Đang sửa' : '🔴 Hỏng'}
                                                 </span>
                                             </td>

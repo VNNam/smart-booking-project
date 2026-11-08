@@ -167,7 +167,7 @@ export const roomStore = {
      * Đăng ký lắng nghe sự kiện thay đổi phòng giữa các trang/tab
      */
     subscribe(callback: (rooms: RoomItem[]) => void): () => void {
-        if (typeof window === 'undefined') return () => { };
+        if (typeof window === 'undefined') return () => {};
 
         const handler = (e: Event) => {
             const customEvent = e as CustomEvent<RoomItem[]>;
