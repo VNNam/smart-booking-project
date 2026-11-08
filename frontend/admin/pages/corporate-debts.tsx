@@ -11,6 +11,8 @@
 
 import React, { useState } from 'react';
 import Head from 'next/head';
+import AdminHeader from '../components/AdminHeader';
+import { withAuth } from '../components/withAuth';
 
 interface CompanyDebt {
     id: string;
@@ -28,7 +30,7 @@ function formatVND(amount: number): string {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 }
 
-export default function CorporateDebtsPage() {
+function CorporateDebtsPage() {
     const [companies, setCompanies] = useState<CompanyDebt[]>([
         {
             id: 'c-01',
@@ -138,17 +140,7 @@ export default function CorporateDebtsPage() {
             </Head>
 
             {/* Header */}
-            <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md px-6 py-4 flex items-center justify-between sticky top-0 z-40">
-                <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-600 flex items-center justify-center font-bold text-white shadow-lg">
-                        💼
-                    </div>
-                    <div>
-                        <h1 className="text-lg font-bold text-white tracking-tight">Quản Lý Công Nợ Doanh Nghiệp (Postpaid Credit Limit)</h1>
-                        <p className="text-xs text-slate-400">Kiểm soát trần tín dụng doanh nghiệp theo chuẩn BRD v1.4</p>
-                    </div>
-                </div>
-            </header>
+            <AdminHeader />
 
             <main className="max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-8 flex-1">
                 {/* BẢNG DANH SÁCH DOANH NGHIỆP (8 COLS) */}
@@ -318,3 +310,5 @@ export default function CorporateDebtsPage() {
         </div>
     );
 }
+
+export default withAuth(CorporateDebtsPage);

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import Head from 'next/head';
-import Link from 'next/link';
+import AdminHeader from '../components/AdminHeader';
 import CalendarGrid from '../components/CalendarGrid';
+import { withAuth } from '../components/withAuth';
 
-export default function AdminDashboardPage() {
+function AdminDashboardPage() {
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     const today = new Date();
     return today.toISOString().split('T')[0];
@@ -16,40 +17,7 @@ export default function AdminDashboardPage() {
         <meta name="description" content="Quản trị đặt phòng họp thông minh" />
       </Head>
 
-      {/* Main Top Header */}
-      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md px-6 py-4 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-40">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-emerald-500 flex items-center justify-center font-bold text-white shadow-lg shadow-emerald-500/20 text-lg">
-            SB
-          </div>
-          <div>
-            <h1 className="text-lg font-bold text-white tracking-tight">Smart Meeting Room - Web Admin</h1>
-            <p className="text-xs text-slate-400">Hệ thống Điều hành Phòng họp Thông minh v1.4 Hardened</p>
-          </div>
-        </div>
-
-        {/* Quick Navigation Links */}
-        <nav className="flex items-center gap-2">
-          <Link
-            href="/"
-            className="px-3.5 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-xs font-semibold hover:bg-emerald-500/30 transition-all"
-          >
-            📅 Master Calendar
-          </Link>
-          <Link
-            href="/cash-booking"
-            className="px-3.5 py-1.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 text-xs font-medium hover:bg-slate-700 hover:text-white transition-all"
-          >
-            💵 Đặt phòng Tiền mặt
-          </Link>
-          <Link
-            href="/corporate-debts"
-            className="px-3.5 py-1.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 text-xs font-medium hover:bg-slate-700 hover:text-white transition-all"
-          >
-            🏢 Hạn mức Công nợ
-          </Link>
-        </nav>
-      </header>
+      <AdminHeader />
 
       {/* Main Content Area */}
       <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
@@ -82,3 +50,4 @@ export default function AdminDashboardPage() {
   );
 }
 
+export default withAuth(AdminDashboardPage);

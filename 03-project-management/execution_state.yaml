@@ -1,6 +1,6 @@
-current_sprint: "Stage 4: Zero-Cost UAT Deployment & Testing"
-last_updated: "2026-10-07T00:10:00Z"
-active_task: "UAT_DEPLOYMENT_PACKAGE_READY"
+current_sprint: "UAT Readiness & Comprehensive System Hardening"
+last_updated: "2026-11-08T14:30:00Z"
+active_task: "UAT_READY_FINAL_EXECUTION_COMPLETED"
 
 sprints:
   sprint_1:
@@ -205,4 +205,42 @@ sprints:
         target_file: "02-architecture/momo_payment_v3_architecture.md"
         status: "DONE"
         completed_at: "2026-10-20T19:03:00Z"
+
+  sprint_4_1_iam_facility:
+    name: "Sprint 4.1: IAM, Facility Management & Accounting Automation"
+    goal: "Implement end-to-end IAM (Customer Register OTP, Staff/Admin Login, Password Reset, RBAC), Facility & Dynamic Pricing Engine, Equipment Inventory, and Accounting Dashboard."
+    status: "COMPLETED"
+    completed_at: "2026-11-08T14:30:00Z"
+    tasks:
+      - id: "iam_core_backend"
+        name: "IAM Core, Password Hashing, JWT & RBAC Middleware"
+        agent: "@Security_Agent / @Dev_Agent"
+        target_file: "src/services/auth/AuthService.ts"
+        status: "DONE"
+        completed_at: "2026-11-08T14:00:00Z"
+      - id: "facility_pricing_backend"
+        name: "Room CRUD, Dynamic Pricing Rules & Asset Equipment Management"
+        agent: "@Dev_Agent"
+        target_file: "src/services/room/RoomAdminService.ts"
+        status: "DONE"
+        completed_at: "2026-11-08T14:05:00Z"
+      - id: "database_seed_v1"
+        name: "Comprehensive UAT Seed Data with Pre-provisioned Accounts & Debts"
+        agent: "@Data_Agent / @Dev_Agent"
+        target_file: "src/database/seed_v1.sql"
+        status: "DONE"
+        completed_at: "2026-11-08T14:10:00Z"
+      - id: "web_admin_pages"
+        name: "Web Admin Auth Guards, Room Catalog, Dynamic Pricing & Accounting"
+        agent: "@Frontend_Agent"
+        target_file: "frontend/admin/pages/admin/rooms.tsx"
+        status: "DONE"
+        completed_at: "2026-11-08T14:12:00Z"
+      - id: "mobile_screens"
+        name: "Mobile App Auth Screens (Login, Register OTP, Forgot Password, Profile)"
+        agent: "@Mobile_Agent"
+        target_file: "frontend/mobile/src/screens/auth/RegisterScreen.tsx"
+        status: "DONE"
+        completed_at: "2026-11-08T14:14:00Z"
+
 

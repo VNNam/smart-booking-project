@@ -19,9 +19,9 @@ paths:
           application/json:
             schema:
               type: object
-              required: [phone, password]
+              required: [identifier, password]
               properties:
-                phone:
+                identifier:
                   type: string
                   example: "+84901234567"
                 password:
@@ -42,7 +42,85 @@ paths:
                     example: Bearer
                   expires_in:
                     type: integer
-                    example: 3600
+                    example: 86400
+
+  /auth/register:
+    post:
+      summary: Khách hàng đăng ký tài khoản (hỗ trợ OTP)
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fullName, phone, password, verificationOtp]
+              properties:
+                fullName:
+                  type: string
+                phone:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+                verificationOtp:
+                  type: string
+      responses:
+        '201':
+          description: Đăng ký thành công
+
+  /auth/forgot-password:
+    post:
+      summary: Yêu cầu đặt lại mật khẩu qua email
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+      responses:
+        '200':
+          description: Link hoặc OTP đặt lại mật khẩu đã gửi
+
+  /auth/reset-password:
+    post:
+      summary: Đặt lại mật khẩu mới
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token:
+                  type: string
+                newPassword:
+                  type: string
+      responses:
+        '200':
+          description: Mật khẩu đã được cập nhật thành công
+
+  /auth/me:
+    get:
+      summary: Lấy thông tin profile người dùng hiện tại
+      tags:
+        - Auth
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Profile người dùng
 
   /services:
     get:

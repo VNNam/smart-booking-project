@@ -12,6 +12,8 @@
 
 import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
+import AdminHeader from '../components/AdminHeader';
+import { withAuth } from '../components/withAuth';
 
 // ==============================================================================
 // 1. KIỂU DỮ LIỆU & INTERFACES
@@ -75,7 +77,7 @@ function formatTime(isoString: string): string {
 // ==============================================================================
 // 3. MAIN COMPONENT: CashBookingPage
 // ==============================================================================
-export default function CashBookingPage() {
+function CashBookingPage() {
     // --- State quản lý ngày & chi nhánh ---
     const [selectedBranch, setSelectedBranch] = useState('b0000000-0000-0000-0000-000000000001');
     const [selectedDate, setSelectedDate] = useState(() => {
@@ -264,23 +266,7 @@ export default function CashBookingPage() {
             </Head>
 
             {/* Header Navigation */}
-            <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md px-6 py-4 flex items-center justify-between sticky top-0 z-40">
-                <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-emerald-500 flex items-center justify-center font-bold text-white shadow-lg shadow-emerald-500/20">
-                        SB
-                    </div>
-                    <div>
-                        <h1 className="text-lg font-bold text-white tracking-tight">Smart Meeting Room - Web Admin</h1>
-                        <p className="text-xs text-slate-400">Phân hệ Lễ Tân: Đặt Phòng Trực Tiếp Tại Quầy (Walk-in Cash)</p>
-                    </div>
-                </div>
-                <div className="flex items-center space-x-4">
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 mr-2 animate-pulse"></span>
-                        Ca trực: Buổi Sáng | Lễ Tân: Tran Thi Le Tan
-                    </span>
-                </div>
-            </header>
+            <AdminHeader />
 
             {/* Main Content Layout */}
             <main className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -552,3 +538,5 @@ export default function CashBookingPage() {
         </div>
     );
 }
+
+export default withAuth(CashBookingPage);

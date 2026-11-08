@@ -232,6 +232,341 @@ paths:
               schema:
                 $ref: '#/components/schemas/RequestRefundOtpResponse'
 
+  /auth/register:
+    post:
+      summary: Khách hàng đăng ký tài khoản (xác thực OTP qua Email hoặc SMS)
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fullName, phone, password, verificationOtp]
+              properties:
+                fullName:
+                  type: string
+                  example: "Nguyễn Văn Khách"
+                phone:
+                  type: string
+                  example: "+84901234567"
+                email:
+                  type: string
+                  format: email
+                  example: "khach@gmail.com"
+                password:
+                  type: string
+                  format: password
+                  example: "Khach@123456"
+                verificationOtp:
+                  type: string
+                  example: "123456"
+      responses:
+        '201':
+          description: Đăng ký thành công, trả về token và profile khách hàng
+        '400':
+          description: OTP không chính xác, hết hạn hoặc thông tin không hợp lệ
+        '409':
+          description: Số điện thoại hoặc email đã được đăng ký
+
+  /auth/login:
+    post:
+      summary: Đăng nhập hệ thống (Khách hàng & Cán bộ nhân viên: Lễ tân, Kế toán, Quản trị)
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, password]
+              properties:
+                identifier:
+                  type: string
+                  example: "admin@smartbooking.vn"
+                  description: Email hoặc số điện thoại đăng ký
+                password:
+                  type: string
+                  format: password
+                  example: "Admin@123456"
+      responses:
+        '200':
+          description: Đăng nhập thành công, trả về JWT access token và profile
+        '401':
+          description: Sai tài khoản hoặc mật khẩu
+        '403':
+          description: Tài khoản đã bị khóa
+
+  /auth/request-otp:
+    post:
+      summary: Gửi mã OTP xác thực (Đăng ký tài khoản)
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [destination, channel]
+              properties:
+                destination:
+                  type: string
+                  example: "khach@gmail.com"
+                channel:
+                  type: string
+                  enum: [EMAIL, SMS]
+                  example: "EMAIL"
+      responses:
+        '200':
+          description: Mã OTP đã được tạo và gửi qua outbox
+        '429':
+          description: Quá giới hạn gửi OTP (Tối đa 3 lần / 5 phút)
+
+  /auth/forgot-password:
+    post:
+      summary: Yêu cầu đặt lại mật khẩu qua email
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "user@example.com"
+      responses:
+        '200':
+          description: Hướng dẫn đặt lại mật khẩu đã được gửi đến email nếu tồn tại
+
+  /auth/reset-password:
+    post:
+      summary: Đặt lại mật khẩu mới bằng token an toàn
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token:
+                  type: string
+                  example: "8f4b12..."
+                newPassword:
+                  type: string
+                  format: password
+                  example: "NewPass@123456"
+      responses:
+        '200':
+          description: Đặt lại mật khẩu thành công
+        '400':
+          description: Token không hợp lệ hoặc đã hết hạn
+
+  /auth/me:
+    get:
+      summary: Lấy thông tin tài khoản và profile hiện tại
+      tags:
+        - Auth
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Thông tin tài khoản người dùng
+        '401':
+          description: Chưa đăng nhập hoặc token không hợp lệ
+
+  /auth/change-password:
+    post:
+      summary: Đổi mật khẩu tài khoản
+      tags:
+        - Auth
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [oldPassword, newPassword]
+              properties:
+                oldPassword:
+                  type: string
+                  format: password
+                newPassword:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Đổi mật khẩu thành công
+        '400':
+          description: Mật khẩu cũ không chính xác
+
+  /admin/rooms:
+    get:
+      summary: Danh sách phòng họp kèm danh mục thiết bị và quy tắc giá động
+      tags:
+        - Admin Facilities
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Danh sách phòng họp chi tiết
+    post:
+      summary: Thêm phòng họp mới vào chi nhánh
+      tags:
+        - Admin Facilities
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branchId, roomName, capacity, basePricePerHour]
+              properties:
+                branchId:
+                  type: string
+                  format: uuid
+                roomName:
+                  type: string
+                  example: "Phòng Hội Thảo B1"
+                capacity:
+                  type: integer
+                  example: 30
+                basePricePerHour:
+                  type: number
+                  example: 600000
+                amenities:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Tạo phòng họp thành công và tự động sinh slots
+
+  /admin/rooms/{id}/maintenance:
+    patch:
+      summary: Bật/Tắt bảo trì phòng họp (Cập nhật trạng thái slot liên quan)
+      tags:
+        - Admin Facilities
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isMaintenance]
+              properties:
+                isMaintenance:
+                  type: boolean
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Cập nhật trạng thái bảo trì thành công
+
+  /admin/rooms/{id}/pricing-rules:
+    post:
+      summary: Cấu hình quy tắc giá động theo khung giờ hoặc cuối tuần
+      tags:
+        - Admin Facilities
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ruleName, priceMultiplier]
+              properties:
+                ruleName:
+                  type: string
+                  example: "Giờ Cao Điểm Chiều"
+                priceMultiplier:
+                  type: number
+                  example: 1.25
+                applicableDays:
+                  type: array
+                  items:
+                    type: string
+                startTime:
+                  type: string
+                  example: "14:00"
+                endTime:
+                  type: string
+                  example: "18:00"
+      responses:
+        '201':
+          description: Thêm quy tắc giá thành công
+
+  /admin/rooms/{id}/equipment:
+    post:
+      summary: Thêm hoặc cập nhật thiết bị vật tư đi kèm phòng họp
+      tags:
+        - Admin Facilities
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [equipmentName, quantity]
+              properties:
+                equipmentName:
+                  type: string
+                  example: "Máy chiếu 4K Laser"
+                serialNumber:
+                  type: string
+                  example: "SN-PRJ-2026-09"
+                quantity:
+                  type: integer
+                  example: 1
+                status:
+                  type: string
+                  enum: [OPERATIONAL, MAINTENANCE, DEFECTIVE]
+                  example: "OPERATIONAL"
+      responses:
+        '201':
+          description: Đã lưu thông tin thiết bị
+
 components:
   securitySchemes:
     bearerAuth:
