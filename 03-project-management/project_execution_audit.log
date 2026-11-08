@@ -69,3 +69,16 @@
 - All design requirements across IAM, Facility Management, Accounting Dashboard, and Multi-Platform Apps are fully implemented, verified, and ready for UAT.
 - Central Audit Log finalized and sealed.
 - Status: COMPLETED.
+
+[2026-11-08T15:01:00Z] [@PM_Agent & @Frontend_Agent] [BUGFIX_ROOM_MAINTENANCE_PERSISTENCE]
+- Issue: Nút "Tạm ngưng bảo trì / Mở lại phòng" chỉ đổi state in-memory trong component rooms.tsx. F5 trang bị reset về ban đầu và trang "Thu tiền mặt" (cash-booking.tsx) có danh sách phòng riêng biệt không đồng bộ.
+- Root Cause:
+  1. Thiếu layer lưu trữ bền vững (Local Persistence) và API proxy handler giữa các trang admin client-side.
+  2. cash-booking.tsx hardcode danh sách phòng riêng và không kiểm tra cờ isActive/bảo trì.
+- Solution Applied:
+  1. Tạo `frontend/admin/lib/roomStore.ts`: Quản lý danh mục phòng đồng bộ, tự động lưu LocalStorage (`smart_booking_rooms_catalog_v1`), phát sự kiện liên trang (`smart_booking_rooms_changed`) và dispatch PATCH API.
+  2. Tạo Next.js API endpoints: `frontend/admin/pages/api/admin/rooms/index.ts` và `frontend/admin/pages/api/admin/rooms/[id]/maintenance.ts`.
+  3. Cập nhật `frontend/admin/pages/admin/rooms.tsx`: Kết nối `roomStore`, thêm thông báo Toast xác nhận thao tác, giữ nguyên trạng thái bảo trì sau khi F5.
+  4. Cập nhật `frontend/admin/pages/cash-booking.tsx`: Kết nối `roomStore`, tự động đồng bộ thời gian thực khi chuyển đổi trạng thái ở trang quản lý phòng, hiển thị thẻ cảnh báo "🟡 ĐANG BẢO TRÌ" khóa đặt chỗ, và bổ sung bộ lọc "Chỉ hiển thị phòng đang hoạt động".
+  5. Kiểm tra biên dịch: `npm run build` thành công 13/13 routes (11 static + 2 dynamic API routes) với 0 lỗi.
+- Status: RESOLVED_AND_VERIFIED.

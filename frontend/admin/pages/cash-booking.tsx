@@ -269,7 +269,7 @@ function CashBookingPage() {
 
             {/* Main Content Layout */}
             <main className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
-                
+
                 {/* CỘT TRÁI (7 cols): Chọn phòng họp & Khung giờ khả dụng */}
                 <section className="lg:col-span-7 space-y-6">
                     <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl backdrop-blur-sm">
@@ -319,11 +319,10 @@ function CashBookingPage() {
                                     return (
                                         <div
                                             key={room.id}
-                                            className={`border rounded-xl p-5 bg-slate-950/50 transition ${
-                                                room.isActive
+                                            className={`border rounded-xl p-5 bg-slate-950/50 transition ${room.isActive
                                                     ? 'border-slate-800/80 hover:border-slate-700'
                                                     : 'border-amber-500/30 bg-amber-950/10'
-                                            }`}
+                                                }`}
                                         >
                                             <div className="flex items-center justify-between mb-3">
                                                 <div>
@@ -374,13 +373,12 @@ function CashBookingPage() {
                                                                 id={`slot-btn-${slot.id}`}
                                                                 disabled={!isAvailable}
                                                                 onClick={() => handleSelectSlot(room, slot)}
-                                                                className={`p-3 rounded-lg border text-left transition flex flex-col justify-between ${
-                                                                    isSelected
+                                                                className={`p-3 rounded-lg border text-left transition flex flex-col justify-between ${isSelected
                                                                         ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300 ring-2 ring-emerald-500/20'
                                                                         : isAvailable
-                                                                        ? 'border-slate-800 bg-slate-900/60 hover:border-slate-600 text-slate-200'
-                                                                        : 'border-slate-800/40 bg-slate-900/20 text-slate-600 cursor-not-allowed'
-                                                                }`}
+                                                                            ? 'border-slate-800 bg-slate-900/60 hover:border-slate-600 text-slate-200'
+                                                                            : 'border-slate-800/40 bg-slate-900/20 text-slate-600 cursor-not-allowed'
+                                                                    }`}
                                                             >
                                                                 <div className="text-sm font-semibold">
                                                                     {formatTime(slot.startTime)} - {formatTime(slot.endTime)}
