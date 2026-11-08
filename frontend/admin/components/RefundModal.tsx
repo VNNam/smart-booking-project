@@ -15,7 +15,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 // ==============================================================================
 // 1. KIỂU DỮ LIỆU & INTERFACES
 // ==============================================================================
-export type PaymentMethod = 'CASH_ON_ARRIVAL' | 'PREPAID_WALLET' | 'ONLINE_GATEWAY' | 'CORPORATE_CREDIT';
+export type PaymentMethod = 'CASH_ON_ARRIVAL' | 'PREPAID_WALLET' | 'ONLINE_GATEWAY' | 'CORPORATE_CREDIT' | 'POSTPAID_DEBT';
 
 export interface BookingToRefund {
     id: string;

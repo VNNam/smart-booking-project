@@ -148,11 +148,14 @@ LOCK_TTL_SECONDS=600
 CANCELLATION_FREE_MONTHLY_LIMIT=2
 SUPERVISOR_OTP_BYPASS_DEV=false
 
-# Cổng Thanh toán VNPAY Sandbox (Test Mode)
-VNPAY_TMN_CODE=SMARTUAT1
-VNPAY_HASH_SECRET=RAHDefaultSecretKeyMockSandboxUAT2026
-VNPAY_URL=https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
-VNPAY_RETURN_URL=https://smart-booking-admin-uat.vercel.app/payment-callback
+# Cổng Thanh toán MoMo API v3 (Sandbox UAT Mode)
+MOMO_ENV=sandbox
+MOMO_PARTNER_CODE=MOMO_SMART_BOOKING
+MOMO_ACCESS_KEY=MOMO_ACCESS_KEY_DEMO
+MOMO_SECRET_KEY=MOMO_SECRET_KEY_DEMO_2026
+MOMO_ENDPOINT=https://test-payment.momo.vn
+MOMO_REDIRECT_URL=https://smart-booking-admin-uat.vercel.app/payment/momo/callback
+MOMO_IPN_URL=https://smart-booking-api-uat.onrender.com/api/v1/payments/webhook/momo
 
 # Mock Webhook Secret
 WEBHOOK_SECRET_KEY=whsec_mock_uat_testing_key_2026
