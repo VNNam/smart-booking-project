@@ -108,3 +108,14 @@
   * Nâng cấp `frontend/admin/components/CalendarGrid.tsx`: Kết nối `roomStore`, hiển thị huy hiệu `[BẢO TRÌ]` và khóa các slot tương ứng theo thời gian thực trên trang Dashboard chính.
 - Verification: `npm run build` thành công 14/14 routes với 0 lỗi. Commit `eee37d9`.
 - Status: COMPLETED_AND_VERIFIED.
+
+---
+[2026-11-08 15:56:00] [AUDIT-ENH-006] [PM_Agent & QA_Agent]
+- Component: Admin Cash Booking & Core Availability QIC Engine (frontend/admin/pages/cash-booking.tsx)
+- Business Rules Enforced:
+  1. Current Date (Rule 1): Real-time slot filtration (tf.startMinutes > currentMinutes). Past slots strictly hidden/eliminated from query result.
+  2. Future Date (Rule 2): Full standard slot coverage (08:00 - 21:00) displayed for booking.
+  3. Past Date Guard: min={todayStr} input protection, error warning banner, disabled booking action, and quick return button.
+  4. Cross-check Cash Walk-in: Idempotency-Key guard, immediate state reflection, dynamic weekend surcharge calculation (+15%).
+- Verification: Next.js production build compiled 14/14 routes with 0 errors (Exit Code 0).
+- Status: COMPLETED_AND_VERIFIED.

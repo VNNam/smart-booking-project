@@ -59,6 +59,13 @@ function formatVND(amount: number): string {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 }
 
+function getLocalDateString(date = new Date()): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 function formatTime(isoOrLocalString: string): string {
     // Trích xuất trực tiếp giờ và phút từ định dạng ISO/Local YYYY-MM-DDTHH:mm:ss tránh lệch múi giờ UTC+7
     if (isoOrLocalString.includes('T')) {
@@ -77,12 +84,37 @@ function formatTime(isoOrLocalString: string): string {
 // 3. MAIN COMPONENT: CashBookingPage
 // ==============================================================================
 function CashBookingPage() {
+    const todayStr = getLocalDateString(new Date());
+
     // --- State quản lý ngày & chi nhánh ---
     const [selectedBranch, setSelectedBranch] = useState('b0000000-0000-0000-0000-000000000001');
-    const [selectedDate, setSelectedDate] = useState(() => {
-        const today = new Date();
-        return today.toISOString().split('T')[0];
-    });
+    const [selectedDate, setSelectedDate] = useState(() => todayStr);
+
+    // Xác định ngữ cảnh ngày tra cứu theo Business Rules (QIC)
+    const isPastDate = selectedDate < todayStr;
+    const isToday = selectedDate === todayStr;
+    const isFutureDate = selectedDate > todayStr;
+
+    // Phát hiện cuối tuần (Thứ Bảy = 6, Chủ Nhật = 0)
+    const [yearNum, monthNum, dayNum] = selectedDate.split('-').map(Number);
+    const selectedDateObj = new Date(yearNum, (monthNum || 1) - 1, dayNum || 1);
+    const dayOfWeek = selectedDateObj.getDay();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    const dayOfWeekLabel = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'][dayOfWeek] || '';
+
+    // Các mốc ngày nhanh tiện ích
+    const tomorrowStr = (() => {
+        const tmrw = new Date();
+        tmrw.setDate(tmrw.getDate() + 1);
+        return getLocalDateString(tmrw);
+    })();
+
+    const nextSaturdayStr = (() => {
+        const nextSat = new Date();
+        const daysUntilSat = (6 - nextSat.getDay() + 7) % 7 || 7;
+        nextSat.setDate(nextSat.getDate() + daysUntilSat);
+        return getLocalDateString(nextSat);
+    })();
 
     // --- State dữ liệu phòng & bộ lọc ---
     const [rooms, setRooms] = useState<Room[]>([]);
@@ -101,21 +133,41 @@ function CashBookingPage() {
         return () => unsubscribe();
     }, []);
 
-    // Tự động sinh danh sách Slot cho tất cả phòng dựa trên ngày được chọn (Giờ hành chính chuẩn 08:00 -> 21:00)
+    // Tự động sinh danh sách Slot cho tất cả phòng dựa trên Core Business Rules (QIC):
+    // Rule 1: Nếu là Ngày Hiện Tại (Current Date) -> Chỉ hiển thị khung giờ tính từ current time đến hết ngày. Ẩn/loại bỏ các khung giờ quá khứ.
+    // Rule 2: Nếu là Ngày Trong Tương Lai (Future Date) -> Hiển thị toàn bộ các khung giờ trống của cả ngày (08:00 -> 21:00).
     useEffect(() => {
         const generatedSlots: Slot[] = [];
-        // Khung giờ theo chuẩn giờ địa phương Việt Nam (không gắn hậu tố Z để tránh lệch múi giờ sang ngày hôm sau)
-        const timeFrames = [
-            { start: '08:00:00', end: '10:00:00' },
-            { start: '10:00:00', end: '12:00:00' },
-            { start: '13:00:00', end: '15:00:00' },
-            { start: '15:00:00', end: '17:00:00' },
-            { start: '17:00:00', end: '19:00:00' },
-            { start: '19:00:00', end: '21:00:00' }
+        const now = new Date();
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+        // Khung giờ hoạt động tiêu chuẩn (08:00 -> 21:00)
+        const standardTimeFrames = [
+            { start: '08:00:00', end: '10:00:00', startMinutes: 8 * 60, endMinutes: 10 * 60 },
+            { start: '10:00:00', end: '12:00:00', startMinutes: 10 * 60, endMinutes: 12 * 60 },
+            { start: '13:00:00', end: '15:00:00', startMinutes: 13 * 60, endMinutes: 15 * 60 },
+            { start: '15:00:00', end: '17:00:00', startMinutes: 15 * 60, endMinutes: 17 * 60 },
+            { start: '17:00:00', end: '19:00:00', startMinutes: 17 * 60, endMinutes: 19 * 60 },
+            { start: '19:00:00', end: '21:00:00', startMinutes: 19 * 60, endMinutes: 21 * 60 }
         ];
 
+        // Áp dụng Rule 1 & Rule 2 để lọc danh sách khung giờ hợp lệ
+        const applicableTimeFrames = standardTimeFrames.filter((tf) => {
+            if (isPastDate) {
+                // Ngày trong quá khứ: Loại bỏ toàn bộ khung giờ
+                return false;
+            }
+            if (isToday) {
+                // Rule 1: Ngày Hiện Tại -> Ẩn/loại bỏ các khung giờ trong quá khứ kể từ thời điểm tra cứu
+                // Chỉ giữ các khung giờ mà giờ bắt đầu chưa trôi qua (startMinutes > currentMinutes)
+                return tf.startMinutes > currentMinutes;
+            }
+            // Rule 2: Ngày Trong Tương Lai -> Hiển thị toàn bộ khung giờ của ngày đó
+            return true;
+        });
+
         rooms.forEach((r, rIdx) => {
-            timeFrames.forEach((tf, tfIdx) => {
+            applicableTimeFrames.forEach((tf, tfIdx) => {
                 const isUnderMaintenance = !r.isActive;
                 generatedSlots.push({
                     id: `slot-${r.id}-${tfIdx}`,
@@ -137,7 +189,14 @@ function CashBookingPage() {
                 setSelectedSlot(null);
             }
         }
-    }, [rooms, selectedDate]);
+    }, [rooms, selectedDate, isToday, isPastDate]);
+
+    // Khi người dùng đổi ngày: tự động reset slot đã chọn để tránh xung đột dữ liệu
+    const handleDateChange = (newDate: string) => {
+        setSelectedDate(newDate);
+        setSelectedSlot(null);
+        setErrorMessage(null);
+    };
 
     // --- State lựa chọn đặt phòng ---
     const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
@@ -153,13 +212,28 @@ function CashBookingPage() {
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [successReceipt, setSuccessReceipt] = useState<CashBookingSuccess | null>(null);
 
-    // Tính toán số tiền cần thu
-    const calculateTotalAmount = (): number => {
+    // Tính toán số tiền cơ bản (chưa tính phụ thu)
+    const getBaseAmount = (): number => {
         if (!selectedRoom || !selectedSlot) return 0;
         const start = new Date(selectedSlot.startTime).getTime();
         const end = new Date(selectedSlot.endTime).getTime();
         const durationHours = Math.max(1, (end - start) / (1000 * 60 * 60));
         return selectedRoom.hourlyRate * durationHours;
+    };
+
+    // Tính toán số tiền cần thu có áp dụng bảng giá động (cuối tuần)
+    const calculateTotalAmount = (): number => {
+        const baseAmount = getBaseAmount();
+        if (baseAmount === 0) return 0;
+
+        if (isWeekend) {
+            const pricingRules = roomStore.getPricingRules();
+            const weekendRule = pricingRules.find(r => r.isActive && (r.applicableDays.includes('Cuối tuần') || r.applicableDays.includes('CN') || r.applicableDays.includes('Thứ 7')));
+            const multiplier = weekendRule ? weekendRule.multiplier : 1.15;
+            return Math.round(baseAmount * multiplier);
+        }
+
+        return baseAmount;
     };
 
     const handleSelectSlot = (room: Room, slot: Slot) => {
@@ -284,21 +358,100 @@ function CashBookingPage() {
                 {/* CỘT TRÁI (7 cols): Chọn phòng họp & Khung giờ khả dụng */}
                 <section className="lg:col-span-7 space-y-6">
                     <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl backdrop-blur-sm">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
                             <div>
                                 <h2 className="text-lg font-semibold text-white">1. Tra Cứu Lịch Phòng Trống</h2>
                                 <p className="text-sm text-slate-400">Chọn chi nhánh và ngày để cập nhật các khung giờ khả dụng</p>
                             </div>
-                            <div className="flex items-center space-x-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                <div className="flex items-center space-x-1.5 bg-slate-950/60 p-1 rounded-lg border border-slate-800">
+                                    <button
+                                        type="button"
+                                        id="btn-quick-today"
+                                        onClick={() => handleDateChange(todayStr)}
+                                        className={`px-2.5 py-1 text-xs rounded-md font-medium transition ${
+                                            isToday ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                                        }`}
+                                    >
+                                        Hôm nay
+                                    </button>
+                                    <button
+                                        type="button"
+                                        id="btn-quick-tomorrow"
+                                        onClick={() => handleDateChange(tomorrowStr)}
+                                        className={`px-2.5 py-1 text-xs rounded-md font-medium transition ${
+                                            selectedDate === tomorrowStr ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                                        }`}
+                                    >
+                                        Ngày mai
+                                    </button>
+                                    <button
+                                        type="button"
+                                        id="btn-quick-weekend"
+                                        onClick={() => handleDateChange(nextSaturdayStr)}
+                                        className={`px-2.5 py-1 text-xs rounded-md font-medium transition ${
+                                            selectedDate === nextSaturdayStr ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                                        }`}
+                                    >
+                                        Thứ 7 tới
+                                    </button>
+                                </div>
                                 <input
                                     id="date-picker-input"
                                     type="date"
+                                    min={todayStr}
                                     value={selectedDate}
-                                    onChange={(e) => setSelectedDate(e.target.value)}
-                                    className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                    onChange={(e) => handleDateChange(e.target.value)}
+                                    className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-emerald-500 outline-none"
                                 />
                             </div>
                         </div>
+
+                        {/* Banner ngữ cảnh theo Core Business Rules (QIC) */}
+                        {isPastDate && (
+                            <div id="past-date-alert" className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between mb-4">
+                                <div className="flex items-center space-x-2">
+                                    <span className="text-base">⚠️</span>
+                                    <span>
+                                        <strong>Ngày trong quá khứ ({selectedDate}):</strong> Không thể tra cứu hoặc đặt phòng cho ngày đã qua.
+                                    </span>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => handleDateChange(todayStr)}
+                                    className="px-2.5 py-1 rounded bg-rose-500/20 text-rose-200 hover:bg-rose-500/30 font-semibold"
+                                >
+                                    Quay về hôm nay
+                                </button>
+                            </div>
+                        )}
+
+                        {isToday && (
+                            <div id="today-date-info" className="p-3 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-300 text-xs flex items-center space-x-2 mb-4">
+                                <span className="text-base">🕒</span>
+                                <span>
+                                    <strong>Quy tắc Ngày Hiện Tại (Rule 1):</strong> Hệ thống chỉ hiển thị các khung giờ từ thời điểm hiện tại đến hết ngày. Các khung giờ trong quá khứ đã được tự động ẩn/loại bỏ.
+                                </span>
+                            </div>
+                        )}
+
+                        {isWeekend && !isPastDate && (
+                            <div id="weekend-date-info" className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs flex items-center space-x-2 mb-4">
+                                <span className="text-base">🎉</span>
+                                <span>
+                                    <strong>Ngày Cuối Tuần ({dayOfWeekLabel} - {selectedDate}):</strong> Áp dụng Rule 2 (hiển thị đủ khung giờ) kèm tự động phụ thu cuối tuần (+15%) theo biểu giá động.
+                                </span>
+                            </div>
+                        )}
+
+                        {isFutureDate && !isWeekend && (
+                            <div id="future-date-info" className="p-3 rounded-xl bg-slate-800/60 border border-slate-700/60 text-slate-300 text-xs flex items-center space-x-2 mb-4">
+                                <span className="text-base">📅</span>
+                                <span>
+                                    <strong>Quy tắc Ngày Tương Lai (Rule 2):</strong> Hiển thị toàn bộ các khung giờ trống của cả ngày ({dayOfWeekLabel} - {selectedDate}) theo giờ hoạt động tiêu chuẩn.
+                                </span>
+                            </div>
+                        )}
 
                         {/* Bộ lọc hiển thị phòng bảo trì / hoạt động */}
                         <div className="flex flex-wrap items-center justify-between pb-3 mb-4 border-b border-slate-800 text-xs gap-2">
@@ -438,6 +591,10 @@ function CashBookingPage() {
                             {/* Tóm tắt lựa chọn */}
                             <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2 text-sm">
                                 <div className="flex justify-between text-slate-400">
+                                    <span>Ngày đặt phòng:</span>
+                                    <span className="text-white font-medium">{dayOfWeekLabel}, {selectedDate}</span>
+                                </div>
+                                <div className="flex justify-between text-slate-400">
                                     <span>Phòng đã chọn:</span>
                                     <span className="text-white font-medium">{selectedRoom ? selectedRoom.name : 'Chưa chọn phòng'}</span>
                                 </div>
@@ -447,6 +604,12 @@ function CashBookingPage() {
                                         {selectedSlot ? `${formatTime(selectedSlot.startTime)} - ${formatTime(selectedSlot.endTime)}` : 'Chưa chọn slot'}
                                     </span>
                                 </div>
+                                {isWeekend && selectedRoom && selectedSlot && (
+                                    <div className="flex justify-between text-xs text-purple-300 bg-purple-500/10 p-2 rounded-lg border border-purple-500/20">
+                                        <span>Phụ thu cuối tuần (+15%):</span>
+                                        <span className="font-semibold">+{formatVND(calculateTotalAmount() - getBaseAmount())}</span>
+                                    </div>
+                                )}
                                 <div className="pt-2 border-t border-slate-800/80 flex justify-between items-center text-base">
                                     <span className="font-semibold text-slate-200">Tổng tiền mặt cần thu:</span>
                                     <span id="total-cash-display" className="font-bold text-emerald-400 text-lg">
@@ -512,7 +675,7 @@ function CashBookingPage() {
                             <button
                                 id="btn-confirm-cash"
                                 type="submit"
-                                disabled={isSubmitting || !selectedRoom || !selectedSlot}
+                                disabled={isSubmitting || !selectedRoom || !selectedSlot || isPastDate}
                                 className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-base shadow-lg shadow-emerald-500/20 hover:from-emerald-600 hover:to-teal-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
                             >
                                 {isSubmitting ? (
