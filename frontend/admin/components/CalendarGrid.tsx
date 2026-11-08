@@ -13,27 +13,22 @@
  * ==============================================================================
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import RefundModal, { BookingToRefund } from './RefundModal';
+import { roomStore, RoomItem } from '../lib/roomStore';
 
 // ==============================================================================
 // 1. KIỂU DỮ LIỆU & INTERFACES
 // ==============================================================================
-export type SlotStatus = 'AVAILABLE' | 'LOCKED_PENDING_ONLINE' | 'CONFIRMED' | 'CONFIRMED_PAID' | 'CONFIRMED_DEBT';
+export type SlotStatus = 'AVAILABLE' | 'LOCKED_PENDING_ONLINE' | 'CONFIRMED' | 'CONFIRMED_PAID' | 'CONFIRMED_DEBT' | 'MAINTENANCE';
 
-export interface RoomData {
-    id: string;
-    name: string;
-    roomType: 'STANDARD' | 'EXECUTIVE' | 'BOARDROOM';
-    capacity: number;
-    hourlyRate: number;
-}
+export type RoomData = RoomItem;
 
 export interface GridSlot {
     id: string;
     roomId: string;
-    startTime: string; // ISO string "2026-10-07T08:00:00Z"
-    endTime: string;   // ISO string "2026-10-07T09:00:00Z"
+    startTime: string; // ISO or local string
+    endTime: string;
     status: SlotStatus;
     bookingId?: string;
     bookingCode?: string;
@@ -67,28 +62,98 @@ function formatVND(amount: number): string {
 // ==============================================================================
 export default function CalendarGrid({
     date,
-    rooms = [
-        { id: 'r-01', name: 'Meeting Room Alpha', roomType: 'STANDARD', capacity: 8, hourlyRate: 350000 },
-        { id: 'r-02', name: 'Executive Room Tokyo', roomType: 'EXECUTIVE', capacity: 16, hourlyRate: 650000 },
-        { id: 'r-03', name: 'Boardroom New York', roomType: 'BOARDROOM', capacity: 24, hourlyRate: 1200000 }
-    ],
-    slots = [],
+    rooms,
+    slots,
     onSelectAvailableSlot,
     onRefresh
 }: CalendarGridProps) {
+    const [liveRooms, setLiveRooms] = useState<RoomItem[]>([]);
+
+    useEffect(() => {
+        setLiveRooms(roomStore.getRooms());
+        const unsubscribe = roomStore.subscribe((updated) => setLiveRooms(updated));
+        return () => unsubscribe();
+    }, []);
+
+    const effectiveRooms = rooms && rooms.length > 0 ? rooms : liveRooms;
+
     const [selectedSlotForDetail, setSelectedSlotForDetail] = useState<GridSlot | null>(null);
     const [refundModalBooking, setRefundModalBooking] = useState<BookingToRefund | null>(null);
     const [filterType, setFilterType] = useState<string>('ALL');
 
     const filteredRooms = useMemo(() => {
-        if (filterType === 'ALL') return rooms;
-        return rooms.filter(r => r.roomType === filterType);
-    }, [rooms, filterType]);
+        if (filterType === 'ALL') return effectiveRooms;
+        return effectiveRooms.filter(r => r.roomType === filterType);
+    }, [effectiveRooms, filterType]);
+
+    // Tự động sinh slots cho Master Grid nếu không truyền slots vào (ví dụ trang Dashboard)
+    const effectiveSlots = useMemo(() => {
+        if (slots && slots.length > 0) return slots;
+        const res: GridSlot[] = [];
+        effectiveRooms.forEach((r, rIdx) => {
+            TIME_COLUMNS.forEach((hour, hIdx) => {
+                if (!r.isActive) {
+                    res.push({
+                        id: `grid-slot-${r.id}-${hour}`,
+                        roomId: r.id,
+                        startTime: `${date}T${hour}:00`,
+                        endTime: `${date}T${parseInt(hour.split(':')[0]) + 1}:00:00`,
+                        status: 'MAINTENANCE'
+                    });
+                } else if (rIdx === 0 && (hIdx === 1 || hIdx === 2)) {
+                    res.push({
+                        id: `grid-slot-${r.id}-${hour}`,
+                        roomId: r.id,
+                        startTime: `${date}T${hour}:00`,
+                        endTime: `${date}T${parseInt(hour.split(':')[0]) + 1}:00:00`,
+                        status: 'CONFIRMED',
+                        bookingCode: 'BKG-VIP-889',
+                        customerName: 'Công ty Cổ phần AlphaTech',
+                        paymentMethod: 'ONLINE_GATEWAY',
+                        totalAmount: r.hourlyRate
+                    });
+                } else if (rIdx === 1 && hIdx === 5) {
+                    res.push({
+                        id: `grid-slot-${r.id}-${hour}`,
+                        roomId: r.id,
+                        startTime: `${date}T${hour}:00`,
+                        endTime: `${date}T${parseInt(hour.split(':')[0]) + 1}:00:00`,
+                        status: 'CONFIRMED_DEBT',
+                        bookingCode: 'BKG-CORP-012',
+                        customerName: 'Tập đoàn Đầu tư Vinatech',
+                        paymentMethod: 'POSTPAID_DEBT',
+                        totalAmount: r.hourlyRate
+                    });
+                } else if (rIdx === 0 && hIdx === 4) {
+                    res.push({
+                        id: `grid-slot-${r.id}-${hour}`,
+                        roomId: r.id,
+                        startTime: `${date}T${hour}:00`,
+                        endTime: `${date}T${parseInt(hour.split(':')[0]) + 1}:00:00`,
+                        status: 'LOCKED_PENDING_ONLINE',
+                        bookingCode: 'BKG-HOLD-771',
+                        customerName: 'Trần Thị Thu Thảo',
+                        paymentMethod: 'ONLINE_GATEWAY',
+                        totalAmount: r.hourlyRate
+                    });
+                } else {
+                    res.push({
+                        id: `grid-slot-${r.id}-${hour}`,
+                        roomId: r.id,
+                        startTime: `${date}T${hour}:00`,
+                        endTime: `${date}T${parseInt(hour.split(':')[0]) + 1}:00:00`,
+                        status: 'AVAILABLE'
+                    });
+                }
+            });
+        });
+        return res;
+    }, [slots, effectiveRooms, date]);
 
     // Tìm slot tương ứng với Room và Hour
     const getSlotForHour = (roomId: string, hourStr: string): GridSlot | undefined => {
         const targetPrefix = `${date}T${hourStr}`;
-        return slots.find(s => s.roomId === roomId && s.startTime.startsWith(targetPrefix));
+        return effectiveSlots.find(s => s.roomId === roomId && s.startTime.startsWith(targetPrefix));
     };
 
     const handleSlotClick = (slot: GridSlot, room: RoomData) => {

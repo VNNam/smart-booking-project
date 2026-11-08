@@ -45,6 +45,12 @@ export const AuthManager = {
         }
     },
 
+    setUser(user: AdminUser): void {
+        if (typeof window === 'undefined') return;
+        localStorage.setItem(USER_KEY, JSON.stringify(user));
+        window.dispatchEvent(new CustomEvent('smart_booking_user_updated', { detail: user }));
+    },
+
     isAuthenticated(): boolean {
         return !!this.getToken();
     },

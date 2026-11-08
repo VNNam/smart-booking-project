@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import AdminHeader from '../../components/AdminHeader';
 import { withAuth } from '../../components/withAuth';
+import { AuthManager } from '../../lib/auth';
 
 function formatVND(amount: number): string {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
@@ -14,7 +15,11 @@ interface ReconciliationItem {
     transId: string;
     orderAmount: number;
     receivedAmount: number;
-    status: 'MATCHED' | 'DISCREPANCY' | 'AUTO_REFUNDED';
+    gatewayStatus: 'MATCHED' | 'DISCREPANCY' | 'AUTO_REFUNDED';
+    reconciliationStatus: 'MATCHED' | 'DISCREPANCY' | 'PENDING';
+    notes: string;
+    verifiedBy?: string;
+    verifiedAt?: string;
     createdAt: string;
 }
 
@@ -27,16 +32,99 @@ interface CashDrawerLog {
     notes: string;
 }
 
+const DEFAULT_RECONCILIATIONS: ReconciliationItem[] = [
+    {
+        id: 'rec-01',
+        bookingCode: 'BKG-202610-101',
+        channel: 'MOMO',
+        transId: 'MOMO_319847192',
+        orderAmount: 650000,
+        receivedAmount: 650000,
+        gatewayStatus: 'MATCHED',
+        reconciliationStatus: 'MATCHED',
+        notes: 'Tiền đã nổi về tài khoản Vietcombank lúc 09:20. Khớp 100%.',
+        verifiedBy: 'Trần Thị Mai (Kế toán)',
+        verifiedAt: '09:25',
+        createdAt: '2026-11-08 09:15'
+    },
+    {
+        id: 'rec-02',
+        bookingCode: 'BKG-202610-102',
+        channel: 'MOMO',
+        transId: 'MOMO_319847205',
+        orderAmount: 350000,
+        receivedAmount: 350000,
+        gatewayStatus: 'MATCHED',
+        reconciliationStatus: 'MATCHED',
+        notes: 'Khớp lệnh thành công.',
+        verifiedBy: 'Trần Thị Mai (Kế toán)',
+        verifiedAt: '10:35',
+        createdAt: '2026-11-08 10:30'
+    },
+    {
+        id: 'rec-03',
+        bookingCode: 'BKG-202610-103',
+        channel: 'MOMO',
+        transId: 'MOMO_319847299',
+        orderAmount: 1200000,
+        receivedAmount: 1200000,
+        gatewayStatus: 'AUTO_REFUNDED',
+        reconciliationStatus: 'MATCHED',
+        notes: 'Late webhook - Đã kiểm tra lệnh hoàn tiền tự động 1.200.000đ cho khách.',
+        verifiedBy: 'Trần Thị Mai (Kế toán)',
+        verifiedAt: '11:50',
+        createdAt: '2026-11-08 11:45'
+    },
+    {
+        id: 'rec-04',
+        bookingCode: 'BKG-202610-104',
+        channel: 'CASH',
+        transId: 'CSH_2026_0901',
+        orderAmount: 700000,
+        receivedAmount: 700000,
+        gatewayStatus: 'MATCHED',
+        reconciliationStatus: 'MATCHED',
+        notes: 'Lễ tân đã nộp tiền mặt vào két ca trực.',
+        verifiedBy: 'Trần Thị Mai (Kế toán)',
+        verifiedAt: '13:05',
+        createdAt: '2026-11-08 13:00'
+    },
+    {
+        id: 'rec-05',
+        bookingCode: 'BKG-202610-105',
+        channel: 'MOMO',
+        transId: 'MOMO_319847350',
+        orderAmount: 850000,
+        receivedAmount: 850000,
+        gatewayStatus: 'MATCHED',
+        reconciliationStatus: 'PENDING',
+        notes: 'Chờ đối chiếu bảng kê ngân hàng ca chiều.',
+        createdAt: '2026-11-08 14:10'
+    }
+];
+
+const STORAGE_KEY_RECON = 'smart_booking_reconciliations_v1';
+
 function AccountingDashboardPage() {
     const [activeTab, setActiveTab] = useState<'RECONCILE' | 'CASH_DRAWER' | 'REVENUE'>('RECONCILE');
+    const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-    // Dữ liệu đối soát mẫu
-    const [reconciliations] = useState<ReconciliationItem[]>([
-        { id: 'rec-01', bookingCode: 'BKG-202610-101', channel: 'MOMO', transId: 'MOMO_319847192', orderAmount: 650000, receivedAmount: 650000, status: 'MATCHED', createdAt: '2026-11-08 09:15' },
-        { id: 'rec-02', bookingCode: 'BKG-202610-102', channel: 'MOMO', transId: 'MOMO_319847205', orderAmount: 350000, receivedAmount: 350000, status: 'MATCHED', createdAt: '2026-11-08 10:30' },
-        { id: 'rec-03', bookingCode: 'BKG-202610-103', channel: 'MOMO', transId: 'MOMO_319847299', orderAmount: 1200000, receivedAmount: 1200000, status: 'AUTO_REFUNDED', createdAt: '2026-11-08 11:45' },
-        { id: 'rec-04', bookingCode: 'BKG-202610-104', channel: 'CASH', transId: 'CSH_2026_0901', orderAmount: 700000, receivedAmount: 700000, status: 'MATCHED', createdAt: '2026-11-08 13:00' }
-    ]);
+    // Dữ liệu đối soát có lưu trữ bền vững
+    const [reconciliations, setReconciliations] = useState<ReconciliationItem[]>(DEFAULT_RECONCILIATIONS);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const raw = localStorage.getItem(STORAGE_KEY_RECON);
+            if (raw) {
+                try {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        setReconciliations(parsed);
+                    }
+                } catch {}
+            }
+        }
+    }, []);
 
     // Dữ liệu quỹ tiền mặt ca trực
     const [cashLogs] = useState<CashDrawerLog[]>([
@@ -49,18 +137,116 @@ function AccountingDashboardPage() {
     const totalCashOut = cashLogs.filter(c => c.type === 'OUT').reduce((acc, c) => acc + c.amount, 0);
     const netCashInDrawer = totalCashIn - totalCashOut;
 
+    // Đánh dấu giao dịch ĐÃ KHỚP
+    const handleMarkMatched = (id: string) => {
+        const currentUser = AuthManager.getUser();
+        const verifier = currentUser ? currentUser.fullName : 'Kế toán viên';
+        const timeNow = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+        const updated = reconciliations.map(r => {
+            if (r.id === id) {
+                return {
+                    ...r,
+                    reconciliationStatus: 'MATCHED' as const,
+                    verifiedBy: verifier,
+                    verifiedAt: timeNow,
+                    notes: r.notes || `Xác nhận khớp tiền với sao kê lúc ${timeNow}`
+                };
+            }
+            return r;
+        });
+
+        setReconciliations(updated);
+        localStorage.setItem(STORAGE_KEY_RECON, JSON.stringify(updated));
+        setToastMessage(`🟢 Đã xác nhận ĐÃ KHỚP cho giao dịch đơn phòng [${reconciliations.find(r => r.id === id)?.bookingCode}].`);
+        setTimeout(() => setToastMessage(null), 3000);
+    };
+
+    // Đánh dấu giao dịch BÁO LỆCH
+    const handleMarkDiscrepancy = (id: string) => {
+        const currentUser = AuthManager.getUser();
+        const verifier = currentUser ? currentUser.fullName : 'Kế toán viên';
+        const timeNow = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+        const updated = reconciliations.map(r => {
+            if (r.id === id) {
+                return {
+                    ...r,
+                    reconciliationStatus: 'DISCREPANCY' as const,
+                    verifiedBy: verifier,
+                    verifiedAt: timeNow,
+                    notes: r.notes || `Phát hiện sai lệch số tiền/chưa nhận được tiền lúc ${timeNow}`
+                };
+            }
+            return r;
+        });
+
+        setReconciliations(updated);
+        localStorage.setItem(STORAGE_KEY_RECON, JSON.stringify(updated));
+        setToastMessage(`🔴 Đã đánh dấu BÁO LỆCH cho giao dịch [${reconciliations.find(r => r.id === id)?.bookingCode}]. Cần kiểm tra lại ngân hàng.`);
+        setTimeout(() => setToastMessage(null), 3500);
+    };
+
+    // Cập nhật nội dung Ghi chú đối soát
+    const handleUpdateNotes = (id: string, notes: string) => {
+        const updated = reconciliations.map(r => r.id === id ? { ...r, notes } : r);
+        setReconciliations(updated);
+    };
+
+    // Lưu toàn bộ biên bản đối soát
+    const handleSaveReconciliationBatch = () => {
+        localStorage.setItem(STORAGE_KEY_RECON, JSON.stringify(reconciliations));
+        setToastMessage(`💾 Đã lưu trữ thành công toàn bộ biên bản đối soát vào hệ thống!`);
+        setTimeout(() => setToastMessage(null), 4000);
+    };
+
+    // Xuất báo cáo đối soát
+    const handleExportReport = () => {
+        const header = "ID,Mã đơn,Cổng,Mã GD,Số tiền,Thực nhận,Trạng thái,Ghi chú,Người duyệt,Thời gian\n";
+        const rows = reconciliations.map(r => 
+            `"${r.id}","${r.bookingCode}","${r.channel}","${r.transId}","${r.orderAmount}","${r.receivedAmount}","${r.reconciliationStatus}","${r.notes || ''}","${r.verifiedBy || ''}","${r.createdAt}"`
+        ).join("\n");
+        
+        const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `Bao_Cao_Doi_Soat_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        setToastMessage(`📥 Đã xuất báo cáo đối soát dạng file CSV thành công!`);
+        setTimeout(() => setToastMessage(null), 3000);
+    };
+
+    const countMatched = reconciliations.filter(r => r.reconciliationStatus === 'MATCHED').length;
+    const countDiscrepancy = reconciliations.filter(r => r.reconciliationStatus === 'DISCREPANCY').length;
+    const countPending = reconciliations.filter(r => r.reconciliationStatus === 'PENDING').length;
+
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
             <Head>
-                <title>Kế toán, Đối soát & Báo cáo | Smart Meeting Room</title>
+                <title>Kế toán & Đối soát Cổng Thanh Toán | Smart Meeting Room</title>
             </Head>
 
             <AdminHeader />
 
             <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
+                {/* Toast Notification */}
+                {toastMessage && (
+                    <div className="p-4 rounded-xl bg-slate-900 border border-emerald-500/50 text-emerald-300 text-xs font-semibold shadow-lg flex items-center justify-between animate-fade-in">
+                        <div className="flex items-center space-x-2">
+                            <span className="text-base">🔔</span>
+                            <span>{toastMessage}</span>
+                        </div>
+                        <button onClick={() => setToastMessage(null)} className="text-slate-400 hover:text-white text-xs px-2 py-0.5">✕</button>
+                    </div>
+                )}
+
                 <div>
-                    <h1 className="text-xl font-bold text-white tracking-tight">Kế Toán, Đối Soát Cổng Thanh Toán & Sổ Quỹ</h1>
-                    <p className="text-xs text-slate-400">Kiểm toán dòng tiền đa kênh (MoMo, Ví, Tiền mặt quầy), đối soát tự động và chốt quỹ ca trực</p>
+                    <h1 className="text-xl font-bold text-white tracking-tight">Kế Toán, Đối Soát Giao Dịch & Sổ Quỹ</h1>
+                    <p className="text-xs text-slate-400">Kiểm toán dòng tiền đa kênh (MoMo API v3, Tiền mặt quầy), xác nhận đối soát có ghi chú và chốt quỹ ca trực</p>
                 </div>
 
                 {/* 4 Financial KPI Cards */}
@@ -100,7 +286,7 @@ function AccountingDashboardPage() {
                                 : 'text-slate-400 hover:text-slate-200'
                         }`}
                     >
-                        🔄 Đối Soát Giao Dịch MoMo ({reconciliations.length})
+                        ⚖️ Đối Soát Giao Dịch & Ghi Chú ({reconciliations.length})
                     </button>
                     <button
                         onClick={() => setActiveTab('CASH_DRAWER')}
@@ -124,17 +310,54 @@ function AccountingDashboardPage() {
                     </button>
                 </div>
 
-                {/* TAB 1: ĐỐI SOÁT MOMO */}
+                {/* =========================================================================
+                    TAB 1: ĐỐI SOÁT MOMO & XÁC NHẬN GHI CHÚ
+                ========================================================================= */}
                 {activeTab === 'RECONCILE' && (
-                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                        <div className="flex items-center justify-between">
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                             <div>
-                                <h3 className="text-sm font-bold text-white">Đối Soát Giao Dịch Cổng MoMo (API v3) & CSDL</h3>
-                                <p className="text-xs text-slate-400">Tự động kiểm tra tính toàn vẹn giữa IPN Webhook và số tiền thực nhận</p>
+                                <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                                    <span>Kiểm Tra & Đối Soát Giao Dịch Cổng MoMo (API v3) & Ngân Hàng</span>
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                        Đã khớp: {countMatched}/{reconciliations.length} ({Math.round((countMatched / reconciliations.length) * 100)}%)
+                                    </span>
+                                </h3>
+                                <p className="text-xs text-slate-400 mt-0.5">Kế toán viên kiểm tra đối chiếu sao kê, tích chọn Đã khớp / Báo lệch và nhập ghi chú tra soát</p>
                             </div>
-                            <button className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-emerald-400 border border-slate-700">
-                                📥 Xuất Báo Cáo Đối Soát (.xlsx)
-                            </button>
+
+                            <div className="flex items-center space-x-2">
+                                <button
+                                    onClick={handleSaveReconciliationBatch}
+                                    className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold shadow-md shadow-emerald-500/20 transition-all flex items-center space-x-1.5"
+                                >
+                                    <span>💾</span>
+                                    <span>Lưu Biên Bản Đối Soát</span>
+                                </button>
+                                <button
+                                    onClick={handleExportReport}
+                                    className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-emerald-400 border border-slate-700 transition-all flex items-center space-x-1.5"
+                                >
+                                    <span>📥</span>
+                                    <span>Xuất Báo Cáo (.csv)</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Status bar */}
+                        <div className="grid grid-cols-3 gap-3 p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-xs">
+                            <div className="flex items-center justify-between px-2">
+                                <span className="text-slate-400">🟢 Khớp hoàn toàn:</span>
+                                <span className="font-bold text-emerald-400">{countMatched} giao dịch</span>
+                            </div>
+                            <div className="flex items-center justify-between px-2 border-x border-slate-800">
+                                <span className="text-slate-400">🔴 Phát hiện sai lệch:</span>
+                                <span className={`font-bold ${countDiscrepancy > 0 ? 'text-rose-400' : 'text-slate-400'}`}>{countDiscrepancy} giao dịch</span>
+                            </div>
+                            <div className="flex items-center justify-between px-2">
+                                <span className="text-slate-400">⚪ Đang chờ soát:</span>
+                                <span className="font-bold text-amber-400">{countPending} giao dịch</span>
+                            </div>
                         </div>
 
                         <div className="overflow-x-auto">
@@ -142,17 +365,19 @@ function AccountingDashboardPage() {
                                 <thead>
                                     <tr className="border-b border-slate-800 text-slate-400">
                                         <th className="pb-3 font-semibold">Mã Đơn Phòng</th>
-                                        <th className="pb-3 font-semibold">Cổng</th>
-                                        <th className="pb-3 font-semibold">Mã Giao Dịch MoMo</th>
+                                        <th className="pb-3 font-semibold">Cổng GD</th>
+                                        <th className="pb-3 font-semibold">Mã GD Cổng / Ngân Hàng</th>
                                         <th className="pb-3 font-semibold">Số Tiền Đơn</th>
                                         <th className="pb-3 font-semibold">Thực Nhận</th>
-                                        <th className="pb-3 font-semibold">Kết Quả Đối Soát</th>
-                                        <th className="pb-3 font-semibold">Thời Gian</th>
+                                        <th className="pb-3 font-semibold">Trạng Thái Đối Soát</th>
+                                        <th className="pb-3 font-semibold min-w-[200px]">Ghi Chú Kiểm Tra / Tra Soát</th>
+                                        <th className="pb-3 font-semibold">Người Kiểm Tra</th>
+                                        <th className="pb-3 font-semibold text-right">Xác Nhận Đối Soát</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/60">
                                     {reconciliations.map(rec => (
-                                        <tr key={rec.id} className="hover:bg-slate-800/30">
+                                        <tr key={rec.id} className="hover:bg-slate-800/30 transition">
                                             <td className="py-3.5 font-bold text-white">{rec.bookingCode}</td>
                                             <td className="py-3.5 font-bold text-pink-400">{rec.channel}</td>
                                             <td className="py-3.5 font-mono text-slate-400">{rec.transId}</td>
@@ -160,16 +385,64 @@ function AccountingDashboardPage() {
                                             <td className="py-3.5 font-semibold text-emerald-400">{formatVND(rec.receivedAmount)}</td>
                                             <td className="py-3.5">
                                                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                                                    rec.status === 'MATCHED'
+                                                    rec.reconciliationStatus === 'MATCHED'
                                                         ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                                                        : rec.status === 'AUTO_REFUNDED'
-                                                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                                                        : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                                                        : rec.reconciliationStatus === 'DISCREPANCY'
+                                                        ? 'bg-rose-500/20 text-rose-400 border-rose-500/30 animate-pulse'
+                                                        : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
                                                 }`}>
-                                                    {rec.status === 'MATCHED' ? '✓ KHỚP 100%' : rec.status === 'AUTO_REFUNDED' ? '↩ SAGA AUTO-REFUND' : '⚠ LỆCH TIỀN'}
+                                                    {rec.reconciliationStatus === 'MATCHED'
+                                                        ? '✓ ĐÃ KHỚP'
+                                                        : rec.reconciliationStatus === 'DISCREPANCY'
+                                                        ? '⚠ BÁO LỆCH'
+                                                        : '⏳ CHỜ SOÁT'}
                                                 </span>
                                             </td>
-                                            <td className="py-3.5 text-slate-400">{rec.createdAt}</td>
+                                            {/* Textbox Ghi chú đối soát trực tiếp */}
+                                            <td className="py-3.5">
+                                                <input
+                                                    type="text"
+                                                    value={rec.notes}
+                                                    onChange={(e) => handleUpdateNotes(rec.id, e.target.value)}
+                                                    placeholder="Nhập ghi chú kiểm tra đối soát..."
+                                                    className="w-full bg-slate-800/90 border border-slate-700/80 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:outline-none focus:border-emerald-500 placeholder-slate-500"
+                                                />
+                                            </td>
+                                            <td className="py-3.5 text-slate-400">
+                                                {rec.verifiedBy ? (
+                                                    <div>
+                                                        <p className="text-slate-300 font-medium">{rec.verifiedBy}</p>
+                                                        <p className="text-[10px] text-slate-500">{rec.verifiedAt}</p>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-slate-600 italic">Chưa duyệt</span>
+                                                )}
+                                            </td>
+                                            {/* Nút Check Khớp / Báo Lệch */}
+                                            <td className="py-3.5 text-right space-x-1.5 whitespace-nowrap">
+                                                <button
+                                                    onClick={() => handleMarkMatched(rec.id)}
+                                                    className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
+                                                        rec.reconciliationStatus === 'MATCHED'
+                                                            ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                                                            : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+                                                    }`}
+                                                    title="Xác nhận giao dịch đã khớp với sao kê ngân hàng"
+                                                >
+                                                    ✓ Khớp
+                                                </button>
+                                                <button
+                                                    onClick={() => handleMarkDiscrepancy(rec.id)}
+                                                    className={`px-2.5 py-1 rounded text-[11px] font-bold border transition ${
+                                                        rec.reconciliationStatus === 'DISCREPANCY'
+                                                            ? 'bg-rose-500 text-white border-rose-400'
+                                                            : 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
+                                                    }`}
+                                                    title="Báo lệch tiền hoặc chưa nhận được tiền"
+                                                >
+                                                    ⚠ Lệch
+                                                </button>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -178,15 +451,20 @@ function AccountingDashboardPage() {
                     </div>
                 )}
 
-                {/* TAB 2: SỔ QUỸ TIỀN MẶT */}
+                {/* =========================================================================
+                    TAB 2: SỔ QUỸ TIỀN MẶT
+                ========================================================================= */}
                 {activeTab === 'CASH_DRAWER' && (
-                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
                         <div className="flex items-center justify-between">
                             <div>
                                 <h3 className="text-sm font-bold text-white">Sổ Quỹ Tiền Mặt & Bàn Giao Ca Trực (Two-Man Rule)</h3>
                                 <p className="text-xs text-slate-400">Minh bạch dòng tiền mặt tại quầy lễ tân và thủ tục bàn giao kết ca</p>
                             </div>
-                            <button className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 text-xs font-bold shadow-md">
+                            <button
+                                onClick={() => alert('Đã chốt sổ ca trực và gửi mã OTP xác nhận tới Trưởng ca qua SMS/App!')}
+                                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 text-xs font-bold shadow-md hover:opacity-90 transition-all"
+                            >
                                 📋 Chốt Ca & In Biên Bản Bàn Giao
                             </button>
                         </div>
@@ -228,9 +506,11 @@ function AccountingDashboardPage() {
                     </div>
                 )}
 
-                {/* TAB 3: BÁO CÁO DOANH THU */}
+                {/* =========================================================================
+                    TAB 3: BÁO CÁO DOANH THU
+                ========================================================================= */}
                 {activeTab === 'REVENUE' && (
-                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl">
                         <div>
                             <h3 className="text-sm font-bold text-white">Cơ Cấu Doanh Thu Theo Kênh Thanh Toán (BRD v1.4 Hardened)</h3>
                             <p className="text-xs text-slate-400">Tỷ trọng dòng tiền giữa các phương thức thanh toán an toàn</p>
@@ -265,5 +545,4 @@ function AccountingDashboardPage() {
     );
 }
 
-export default withAuth(AccountingDashboardPage);
-
+export default withAuth(AccountingDashboardPage, ['ADMIN', 'STAFF']);

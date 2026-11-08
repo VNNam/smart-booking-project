@@ -23,6 +23,7 @@ export default function AdminHeader() {
         { href: '/corporate-debts', label: '🏢 Công nợ', active: router.pathname === '/corporate-debts' },
         { href: '/admin/rooms', label: '🚪 Quản lý Phòng & Giá', active: router.pathname.startsWith('/admin/rooms') },
         { href: '/admin/accounting', label: '📊 Kế toán & Đối soát', active: router.pathname.startsWith('/admin/accounting') },
+        { href: '/admin/users', label: '👥 Quản lý Tài khoản', active: router.pathname.startsWith('/admin/users'), adminOnly: true },
     ];
 
     const getRoleBadge = (role?: string) => {
@@ -53,19 +54,21 @@ export default function AdminHeader() {
 
             {/* Main Navigation Links */}
             <nav className="flex items-center gap-1.5 flex-wrap">
-                {navLinks.map((link) => (
-                    <Link
-                        key={link.href}
-                        href={link.href}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                            link.active
-                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-sm shadow-emerald-500/10'
-                                : 'text-slate-300 hover:text-white hover:bg-slate-800 border border-transparent'
-                        }`}
-                    >
-                        {link.label}
-                    </Link>
-                ))}
+                {navLinks
+                    .filter((link) => !link.adminOnly || user?.role === 'ADMIN')
+                    .map((link) => (
+                        <Link
+                            key={link.href}
+                            href={link.href}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                                link.active
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-sm shadow-emerald-500/10'
+                                    : 'text-slate-300 hover:text-white hover:bg-slate-800 border border-transparent'
+                            }`}
+                        >
+                            {link.label}
+                        </Link>
+                    ))}
             </nav>
 
             {/* User Profile Badge & Menu */}
@@ -103,8 +106,18 @@ export default function AdminHeader() {
                             className="flex items-center space-x-2 px-3 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-all"
                         >
                             <span>👤</span>
-                            <span>Hồ sơ tài khoản</span>
+                            <span>Hồ sơ tài khoản & Email</span>
                         </Link>
+                        {user?.role === 'ADMIN' && (
+                            <Link
+                                href="/admin/users"
+                                onClick={() => setIsMenuOpen(false)}
+                                className="flex items-center space-x-2 px-3 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-all"
+                            >
+                                <span>👥</span>
+                                <span>Quản lý cán bộ & Khóa TK</span>
+                            </Link>
+                        )}
                         <button
                             onClick={handleLogout}
                             className="w-full flex items-center space-x-2 px-3 py-2 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-all text-left mt-1 border-t border-slate-800/60"
