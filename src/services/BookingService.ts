@@ -122,11 +122,11 @@ export class BookingService {
         const client: PoolClient = await this.dbPool.connect();
 
         try {
-            // UUID regex chấp nhận cả UUID v4 lẫn định dạng UUID có prefix (r0000000-..., s0000000-..., u0000000-...) của hệ thống
+            // Hỗ trợ cả UUID chuẩn, ID dạng r0000000-... lẫn ID dạng r-${Date.now()} từ Web Admin
             const UUID_REGEX = /^[0-9a-z]{8}-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{12}$/i;
 
-            if (!dto.roomId || !UUID_REGEX.test(dto.roomId)) {
-                throw new BusinessError('INVALID_ROOM_ID', 'Mã phòng họp không đúng định dạng UUID.', 400);
+            if (!dto.roomId || typeof dto.roomId !== 'string' || dto.roomId.trim().length === 0) {
+                throw new BusinessError('INVALID_ROOM_ID', 'Mã phòng họp không được để trống.', 400);
             }
 
             let slotRow: any = null;
@@ -141,7 +141,7 @@ export class BookingService {
                         (s.start_time <= NOW()) AS is_past
                     FROM rooms r
                     JOIN slots s ON s.room_id = r.id
-                    WHERE r.id = $1 AND s.id = $2 AND r.is_active = TRUE;
+                    WHERE (r.id::text = $1 OR r.name = $1) AND s.id::text = $2 AND r.is_active = TRUE;
                 `, [dto.roomId, resolvedSlotId]);
 
                 if (roomSlotRes.rows.length > 0) {
@@ -164,7 +164,7 @@ export class BookingService {
                         (s.start_time <= NOW()) AS is_past
                     FROM rooms r
                     JOIN slots s ON s.room_id = r.id
-                    WHERE r.id = $1 AND s.start_time = $2 AND s.end_time = $3 AND r.is_active = TRUE;
+                    WHERE (r.id::text = $1 OR r.name = $1) AND s.start_time = $2 AND s.end_time = $3 AND r.is_active = TRUE;
                 `, [dto.roomId, startTs.toISOString(), endTs.toISOString()]);
 
                 if (existingSlotRes.rows.length > 0) {
@@ -173,13 +173,28 @@ export class BookingService {
                 } else {
                     // Kiểm tra phòng họp
                     const roomRes = await client.query(
-                        'SELECT id, name, hourly_rate FROM rooms WHERE id = $1 AND is_active = TRUE;',
+                        'SELECT id, name, hourly_rate FROM rooms WHERE (id::text = $1 OR name = $1) AND is_active = TRUE;',
                         [dto.roomId]
                     );
+                    let room: any = null;
                     if (roomRes.rows.length === 0) {
-                        throw new BusinessError('NOT_FOUND', 'Không tìm thấy thông tin phòng họp hoặc phòng đang tạm khóa.', 404);
+                        if (dto.roomId.startsWith('r-')) {
+                            // Tự động khởi tạo phòng trong CSDL nếu được tạo từ Web Admin LocalStore
+                            const generatedRoomUuid = uuidv4();
+                            const branchRes = await client.query('SELECT id FROM branches LIMIT 1');
+                            const branchId = branchRes.rows.length > 0 ? branchRes.rows[0].id : uuidv4();
+                            await client.query(`
+                                INSERT INTO rooms (id, branch_id, name, room_type, capacity, hourly_rate, is_active)
+                                VALUES ($1, $2, $3, 'STANDARD', 10, 500000, TRUE)
+                                ON CONFLICT DO NOTHING;
+                            `, [generatedRoomUuid, branchId, `Phòng họp ${dto.roomId}`]);
+                            room = { id: generatedRoomUuid, name: `Phòng họp ${dto.roomId}`, hourly_rate: '500000' };
+                        } else {
+                            throw new BusinessError('NOT_FOUND', 'Không tìm thấy thông tin phòng họp hoặc phòng đang tạm khóa.', 404);
+                        }
+                    } else {
+                        room = roomRes.rows[0];
                     }
-                    const room = roomRes.rows[0];
                     const isPast = startTs.getTime() <= Date.now();
 
                     // Tạo mới slot trong DB
@@ -187,7 +202,7 @@ export class BookingService {
                     await client.query(`
                         INSERT INTO slots (id, room_id, start_time, end_time, status)
                         VALUES ($1, $2, $3, $4, 'AVAILABLE');
-                    `, [resolvedSlotId, dto.roomId, startTs.toISOString(), endTs.toISOString()]);
+                    `, [resolvedSlotId, room.id, startTs.toISOString(), endTs.toISOString()]);
 
                     slotRow = {
                         room_id: room.id,
@@ -416,14 +431,14 @@ export class BookingService {
                 let corporateAccount = dto.corporateDebtAccount || dto.companyId || null;
 
                 if (dto.memberId) {
-                    if (!UUID_REGEX.test(dto.memberId)) {
-                        throw new BusinessError('INVALID_MEMBER_ID', 'Mã thành viên không đúng định dạng UUID.', 400);
+                    if (typeof dto.memberId !== 'string' || dto.memberId.trim().length === 0) {
+                        throw new BusinessError('INVALID_MEMBER_ID', 'Mã thành viên không hợp lệ.', 400);
                     }
-                    const memberRes = await client.query('SELECT id, company_id, full_name FROM users WHERE id = $1', [dto.memberId]);
+                    const memberRes = await client.query('SELECT id, company_id, full_name FROM users WHERE (id::text = $1 OR email = $1)', [dto.memberId]);
                     if (memberRes.rows.length === 0) {
                         throw new BusinessError('MEMBER_NOT_FOUND', 'Không tìm thấy tài khoản thành viên công ty.', 404);
                     }
-                    bookingUserId = dto.memberId;
+                    bookingUserId = memberRes.rows[0].id;
                     if (!corporateAccount && memberRes.rows[0].company_id) {
                         corporateAccount = memberRes.rows[0].company_id;
                     }

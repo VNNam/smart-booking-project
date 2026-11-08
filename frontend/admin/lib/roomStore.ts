@@ -235,9 +235,12 @@ export const roomStore = {
 
     addRoom(room: Omit<RoomItem, 'id'>): RoomItem {
         const rooms = this.getRooms();
+        const generatedUuid = typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `r0000000-0000-0000-0000-${Date.now().toString().slice(-12).padStart(12, '0')}`;
         const newRoom: RoomItem = {
             ...room,
-            id: `r-${Date.now()}`
+            id: generatedUuid
         };
         const updated = [...rooms, newRoom];
         this.saveRooms(updated);

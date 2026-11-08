@@ -250,6 +250,59 @@ describe('Cash Walk-in Booking & Corporate Linkage (TC-CASH-01 & TC-CASH-02)', (
                 expect.arrayContaining([expect.any(String), validRoomId, futureStart, futureEnd])
             );
         });
+
+        it('2.3. Chấp nhận roomId dạng r-1794125428360 từ Web Admin Store và hoàn tất thu tiền mặt 100%', async () => {
+            const adminRoomId = 'r-1794125428360';
+            const syntheticSlotId = 'slot-r-1794125428360-2026-11-09-19:00';
+            const futureStart = '2026-11-09T19:00:00.000Z';
+            const futureEnd = '2026-11-09T21:00:00.000Z';
+
+            mockClient.query
+                // Query slot theo synthetic slotId -> không thấy vì không phải UUID
+                // Query slot theo (roomId, startTime, endTime)
+                .mockResolvedValueOnce({ rows: [] })
+                // Query room info theo (id::text = $1 OR name = $1)
+                .mockResolvedValueOnce({
+                    rows: [{ id: 'r0000000-0000-0000-0000-000000000002', name: 'Executive Boardroom Tokyo', hourly_rate: '650000', is_active: true }]
+                })
+                // INSERT slots
+                .mockResolvedValueOnce({ rowCount: 1 })
+                // BEGIN
+                .mockResolvedValueOnce({})
+                // INSERT bookings
+                .mockResolvedValueOnce({
+                    rows: [{ id: 'bkg-admin-room-1', booking_code: 'BKG-ADMIN-01', created_at: new Date().toISOString() }]
+                })
+                // UPDATE slots
+                .mockResolvedValueOnce({ rowCount: 1 })
+                // INSERT cash_book_logs
+                .mockResolvedValueOnce({ rowCount: 1 })
+                // INSERT outbox_events
+                .mockResolvedValueOnce({ rowCount: 1 })
+                // COMMIT
+                .mockResolvedValueOnce({});
+
+            const res = await bookingService.createBooking(
+                {
+                    roomId: adminRoomId,
+                    slotId: syntheticSlotId,
+                    bookingDate: '2026-11-09',
+                    startTime: futureStart,
+                    endTime: futureEnd,
+                    paymentMethod: 'CASH_ON_ARRIVAL',
+                    customerName: 'gjyoisvglksanfljsalj;',
+                    customerPhone: '0888237961',
+                    notes: 'học aoisjf;osajlkfsalkm'
+                },
+                receptionistUser,
+                'idem-admin-custom-room-01'
+            );
+
+            expect(res.bookingStatus).toBe('CONFIRMED_PAID');
+            expect(res.paymentMethod).toBe('CASH_ON_ARRIVAL');
+            expect(res.paymentStatus).toBe('PAID');
+            expect(res.totalAmount).toBe(1300000);
+        });
     });
 });
 

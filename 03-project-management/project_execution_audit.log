@@ -170,3 +170,18 @@
   * Unit Tests: 20/20 PASSED across 3 test suites (`test/utils/businessTime.test.ts`, `test/services/quota_accounting.test.ts`, `test/services/cash_booking_walkin.test.ts`).
   * Frontend Admin Build: 12/12 static pages compiled successfully with Next.js (Exit Code 0).
 - Status: PRODUCTION_READY_AND_VERIFIED.
+
+---
+[2026-11-08 21:52:00] [FIX-DYNAMIC-ROOMID-API-ROUTE-COMPLETE] [SA_Agent & Dev_Agent & QA_Agent]
+- Problem: Payload with custom room ID `r-1794125428360` from Admin RoomStore failed with 400 Bad Request because:
+  1. `BookingService.ts` strictly validated `dto.roomId` against UUID regex.
+  2. Next.js Web Admin lacked `/api/v1/bookings` API endpoint, causing 404/fallback failure on direct web app execution.
+  3. `roomStore.addRoom` previously generated timestamp-based IDs (`r-${Date.now()}`) instead of UUID.
+- Solution Applied:
+  1. `BookingService.ts`: Relaxed `roomId` validation to allow dynamic store IDs (`r-1794125428360`) and used `id::text = $1` to protect against Postgres 22P02 type coercion. Auto-provisions room if dynamic store ID is passed.
+  2. Implemented full Next.js API route `frontend/admin/pages/api/v1/bookings.ts` handling real-time past slot verification (409 SLOT_IN_PAST), pricing calculation with Vietnam weekend surcharge (+15%), cash receipt generation (`bookingCode`, `cashBookEntryId`), and corporate debt account linkage.
+  3. Enhanced `roomStore.addRoom` to generate standard UUID format for all future rooms while retaining backward compatibility for existing rooms in local storage.
+- Verification Results:
+  * 21/21 Unit Tests PASSED across 3 test suites (`cash_booking_walkin.test.ts` with TC 2.3 for `r-1794125428360`).
+  * Next.js build compiled all routes including `ƒ /api/v1/bookings` with 0 errors (Exit Code 0).
+- Status: PRODUCTION_READY_AND_VERIFIED.
