@@ -14,29 +14,19 @@ import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import AdminHeader from '../components/AdminHeader';
 import { withAuth } from '../components/withAuth';
+import { roomStore, RoomItem } from '../lib/roomStore';
 
 // ==============================================================================
 // 1. KIỂU DỮ LIỆU & INTERFACES
 // ==============================================================================
-interface Room {
-    id: string;
-    name: string;
-    roomType: 'STANDARD' | 'EXECUTIVE' | 'BOARDROOM';
-    capacity: number;
-    hourlyRate: number;
-    amenities: {
-        projector?: boolean;
-        whiteboard?: boolean;
-        videoConf?: boolean;
-    };
-}
+type Room = RoomItem;
 
 interface Slot {
     id: string;
     roomId: string;
     startTime: string; // ISO string
     endTime: string;
-    status: 'AVAILABLE' | 'LOCKED' | 'BOOKED';
+    status: 'AVAILABLE' | 'LOCKED' | 'BOOKED' | 'MAINTENANCE';
 }
 
 interface CashBookingSuccess {
@@ -85,49 +75,58 @@ function CashBookingPage() {
         return today.toISOString().split('T')[0];
     });
 
-    // --- State dữ liệu phòng & khung giờ ---
-    const [rooms, setRooms] = useState<Room[]>([
-        {
-            id: 'r0000000-0000-0000-0000-000000000001',
-            name: 'Meeting Room Alpha',
-            roomType: 'STANDARD',
-            capacity: 8,
-            hourlyRate: 350000,
-            amenities: { projector: true, whiteboard: true, videoConf: false }
-        },
-        {
-            id: 'r0000000-0000-0000-0000-000000000002',
-            name: 'Executive Boardroom Tokyo',
-            roomType: 'EXECUTIVE',
-            capacity: 20,
-            hourlyRate: 800000,
-            amenities: { projector: true, whiteboard: true, videoConf: true }
-        }
-    ]);
+    // --- State dữ liệu phòng & bộ lọc ---
+    const [rooms, setRooms] = useState<Room[]>([]);
+    const [filterActiveOnly, setFilterActiveOnly] = useState<boolean>(true);
+    const [slots, setSlots] = useState<Slot[]>([]);
 
-    const [slots, setSlots] = useState<Slot[]>([
-        {
-            id: 's0000000-0000-0000-0000-000000000001',
-            roomId: 'r0000000-0000-0000-0000-000000000001',
-            startTime: '2026-10-06T09:00:00Z',
-            endTime: '2026-10-06T11:00:00Z',
-            status: 'AVAILABLE'
-        },
-        {
-            id: 's0000000-0000-0000-0000-000000000002',
-            roomId: 'r0000000-0000-0000-0000-000000000001',
-            startTime: '2026-10-06T14:00:00Z',
-            endTime: '2026-10-06T16:00:00Z',
-            status: 'AVAILABLE'
-        },
-        {
-            id: 's0000000-0000-0000-0000-000000000003',
-            roomId: 'r0000000-0000-0000-0000-000000000002',
-            startTime: '2026-10-06T10:00:00Z',
-            endTime: '2026-10-06T12:00:00Z',
-            status: 'AVAILABLE'
+    // Tải và lắng nghe cập nhật phòng theo thời gian thực từ persistent store
+    useEffect(() => {
+        const initialRooms = roomStore.getRooms();
+        setRooms(initialRooms);
+
+        const unsubscribe = roomStore.subscribe((updatedRooms) => {
+            setRooms(updatedRooms);
+        });
+
+        return () => unsubscribe();
+    }, []);
+
+    // Tự động sinh danh sách Slot cho tất cả phòng dựa trên ngày được chọn và trạng thái bảo trì
+    useEffect(() => {
+        const generatedSlots: Slot[] = [];
+        const timeFrames = [
+            { start: '08:30:00Z', end: '10:30:00Z' },
+            { start: '11:00:00Z', end: '13:00:00Z' },
+            { start: '14:00:00Z', end: '16:00:00Z' },
+            { start: '16:30:00Z', end: '18:30:00Z' },
+            { start: '19:00:00Z', end: '21:00:00Z' }
+        ];
+
+        rooms.forEach((r, rIdx) => {
+            timeFrames.forEach((tf, tfIdx) => {
+                const isUnderMaintenance = !r.isActive;
+                generatedSlots.push({
+                    id: `slot-${r.id}-${tfIdx}`,
+                    roomId: r.id,
+                    startTime: `${selectedDate}T${tf.start}`,
+                    endTime: `${selectedDate}T${tf.end}`,
+                    status: isUnderMaintenance ? 'MAINTENANCE' : (rIdx === 0 && tfIdx === 1 ? 'BOOKED' : 'AVAILABLE')
+                });
+            });
+        });
+
+        setSlots(generatedSlots);
+
+        // Nếu phòng đang chọn bị chuyển sang bảo trì thì bỏ chọn
+        if (selectedRoom) {
+            const currentSelected = rooms.find(r => r.id === selectedRoom.id);
+            if (currentSelected && !currentSelected.isActive) {
+                setSelectedRoom(null);
+                setSelectedSlot(null);
+            }
         }
-    ]);
+    }, [rooms, selectedDate]);
 
     // --- State lựa chọn đặt phòng ---
     const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
@@ -290,72 +289,120 @@ function CashBookingPage() {
                             </div>
                         </div>
 
+                        {/* Bộ lọc hiển thị phòng bảo trì / hoạt động */}
+                        <div className="flex flex-wrap items-center justify-between pb-3 mb-4 border-b border-slate-800 text-xs gap-2">
+                            <span className="text-slate-400">Hiển thị {rooms.filter(r => filterActiveOnly ? r.isActive : true).length} / {rooms.length} phòng họp</span>
+                            <label className="flex items-center space-x-2 cursor-pointer text-slate-300 hover:text-white select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={filterActiveOnly}
+                                    onChange={(e) => setFilterActiveOnly(e.target.checked)}
+                                    className="rounded border-slate-700 text-emerald-500 focus:ring-emerald-400 bg-slate-800"
+                                />
+                                <span>Chỉ hiển thị phòng đang hoạt động (Ẩn phòng bảo trì)</span>
+                            </label>
+                        </div>
+
                         {/* Danh sách phòng họp & các Slot */}
                         <div className="space-y-6">
-                            {rooms.map((room) => {
-                                const roomSlots = slots.filter((s) => s.roomId === room.id);
-                                return (
-                                    <div
-                                        key={room.id}
-                                        className="border border-slate-800/80 rounded-xl p-5 bg-slate-950/50 hover:border-slate-700 transition"
-                                    >
-                                        <div className="flex items-center justify-between mb-3">
-                                            <div>
-                                                <div className="flex items-center space-x-2">
-                                                    <h3 className="font-semibold text-white text-base">{room.name}</h3>
-                                                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-800 text-slate-300">
-                                                        {room.roomType}
+                            {rooms.filter(r => filterActiveOnly ? r.isActive : true).length === 0 ? (
+                                <div className="p-8 rounded-xl border border-slate-800 bg-slate-950/40 text-center space-y-2">
+                                    <p className="text-2xl">🚪</p>
+                                    <p className="text-sm font-semibold text-slate-300">Không có phòng nào đang mở đón khách</p>
+                                    <p className="text-xs text-slate-500">
+                                        Tất cả các phòng đang trong thời gian bảo trì. Bạn có thể bỏ chọn ô &quot;Chỉ hiển thị phòng đang hoạt động&quot; hoặc sang trang Quản lý phòng & giá để mở lại phòng.
+                                    </p>
+                                </div>
+                            ) : (
+                                rooms.filter(r => filterActiveOnly ? r.isActive : true).map((room) => {
+                                    const roomSlots = slots.filter((s) => s.roomId === room.id);
+                                    return (
+                                        <div
+                                            key={room.id}
+                                            className={`border rounded-xl p-5 bg-slate-950/50 transition ${
+                                                room.isActive
+                                                    ? 'border-slate-800/80 hover:border-slate-700'
+                                                    : 'border-amber-500/30 bg-amber-950/10'
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between mb-3">
+                                                <div>
+                                                    <div className="flex items-center space-x-2">
+                                                        <h3 className="font-semibold text-white text-base">{room.name}</h3>
+                                                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-800 text-slate-300">
+                                                            {room.roomType}
+                                                        </span>
+                                                        {!room.isActive && (
+                                                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                                                🟡 ĐANG BẢO TRÌ
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-xs text-slate-400 mt-1">
+                                                        Sức chứa: {room.capacity} người • Giá: <span className="text-emerald-400 font-medium">{formatVND(room.hourlyRate)}/giờ</span>
+                                                    </p>
+                                                </div>
+                                                <div className="flex space-x-1 text-xs text-slate-500">
+                                                    {room.amenities.projector && <span title="Máy chiếu">📽️</span>}
+                                                    {room.amenities.whiteboard && <span title="Bảng trắng">📝</span>}
+                                                    {room.amenities.videoConf && <span title="Video Conference">📹</span>}
+                                                </div>
+                                            </div>
+
+                                            {/* Nếu phòng bảo trì thì hiển thị banner cảnh báo, ngược lại hiển thị slot */}
+                                            {!room.isActive ? (
+                                                <div className="p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between">
+                                                    <div className="flex items-center space-x-2">
+                                                        <span className="text-base">🛠️</span>
+                                                        <span>
+                                                            <strong>Phòng đang tạm ngưng bảo trì:</strong> Không thể nhận khách tại quầy ({room.maintenanceReason || 'Bảo dưỡng kỹ thuật'}).
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-[10px] uppercase font-bold text-amber-400 px-2 py-0.5 rounded bg-amber-500/20">
+                                                        Khóa đặt chỗ
                                                     </span>
                                                 </div>
-                                                <p className="text-xs text-slate-400 mt-1">
-                                                    Sức chứa: {room.capacity} người • Giá: <span className="text-emerald-400 font-medium">{formatVND(room.hourlyRate)}/giờ</span>
-                                                </p>
-                                            </div>
-                                            <div className="flex space-x-1 text-xs text-slate-500">
-                                                {room.amenities.projector && <span title="Máy chiếu">📽️</span>}
-                                                {room.amenities.whiteboard && <span title="Bảng trắng">📝</span>}
-                                                {room.amenities.videoConf && <span title="Video Conference">📹</span>}
-                                            </div>
-                                        </div>
+                                            ) : (
+                                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
+                                                    {roomSlots.map((slot) => {
+                                                        const isSelected = selectedSlot?.id === slot.id;
+                                                        const isAvailable = slot.status === 'AVAILABLE';
 
-                                        {/* Lưới các Slot của phòng */}
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
-                                            {roomSlots.map((slot) => {
-                                                const isSelected = selectedSlot?.id === slot.id;
-                                                const isAvailable = slot.status === 'AVAILABLE';
-
-                                                return (
-                                                    <button
-                                                        key={slot.id}
-                                                        id={`slot-btn-${slot.id}`}
-                                                        disabled={!isAvailable}
-                                                        onClick={() => handleSelectSlot(room, slot)}
-                                                        className={`p-3 rounded-lg border text-left transition flex flex-col justify-between ${
-                                                            isSelected
-                                                                ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300 ring-2 ring-emerald-500/20'
-                                                                : isAvailable
-                                                                ? 'border-slate-800 bg-slate-900/60 hover:border-slate-600 text-slate-200'
-                                                                : 'border-slate-800/40 bg-slate-900/20 text-slate-600 cursor-not-allowed'
-                                                        }`}
-                                                    >
-                                                        <div className="text-sm font-semibold">
-                                                            {formatTime(slot.startTime)} - {formatTime(slot.endTime)}
-                                                        </div>
-                                                        <div className="text-xs mt-2 flex items-center justify-between">
-                                                            <span>
-                                                                {slot.status === 'AVAILABLE' && 'Còn trống'}
-                                                                {slot.status === 'LOCKED' && 'Đang giữ (10p)'}
-                                                                {slot.status === 'BOOKED' && 'Đã đặt'}
-                                                            </span>
-                                                            {isSelected && <span className="text-emerald-400">✓ Chọn</span>}
-                                                        </div>
-                                                    </button>
-                                                );
-                                            })}
+                                                        return (
+                                                            <button
+                                                                key={slot.id}
+                                                                id={`slot-btn-${slot.id}`}
+                                                                disabled={!isAvailable}
+                                                                onClick={() => handleSelectSlot(room, slot)}
+                                                                className={`p-3 rounded-lg border text-left transition flex flex-col justify-between ${
+                                                                    isSelected
+                                                                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300 ring-2 ring-emerald-500/20'
+                                                                        : isAvailable
+                                                                        ? 'border-slate-800 bg-slate-900/60 hover:border-slate-600 text-slate-200'
+                                                                        : 'border-slate-800/40 bg-slate-900/20 text-slate-600 cursor-not-allowed'
+                                                                }`}
+                                                            >
+                                                                <div className="text-sm font-semibold">
+                                                                    {formatTime(slot.startTime)} - {formatTime(slot.endTime)}
+                                                                </div>
+                                                                <div className="text-xs mt-2 flex items-center justify-between">
+                                                                    <span>
+                                                                        {slot.status === 'AVAILABLE' && 'Còn trống'}
+                                                                        {slot.status === 'LOCKED' && 'Đang giữ (10p)'}
+                                                                        {slot.status === 'BOOKED' && 'Đã đặt'}
+                                                                        {slot.status === 'MAINTENANCE' && 'Bảo trì'}
+                                                                    </span>
+                                                                    {isSelected && <span className="text-emerald-400">✓ Chọn</span>}
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
                                         </div>
-                                    </div>
-                                );
-                            })}
+                                    );
+                                })
+                            )}
                         </div>
                     </div>
                 </section>

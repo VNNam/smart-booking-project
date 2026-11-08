@@ -1,24 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import AdminHeader from '../../components/AdminHeader';
 import { withAuth } from '../../components/withAuth';
-
-interface RoomItem {
-    id: string;
-    name: string;
-    roomType: 'STANDARD' | 'EXECUTIVE' | 'BOARDROOM';
-    capacity: number;
-    hourlyRate: number;
-    amenities: {
-        projector?: boolean;
-        whiteboard?: boolean;
-        videoConf?: boolean;
-        soundSystem?: boolean;
-        smartTv?: boolean;
-        highSpeedWifi?: boolean;
-    };
-    isActive: boolean;
-}
+import { roomStore, RoomItem, DEFAULT_ROOMS } from '../../lib/roomStore';
 
 interface EquipmentItem {
     id: string;
@@ -45,37 +29,22 @@ function formatVND(amount: number): string {
 
 function RoomManagementPage() {
     const [activeTab, setActiveTab] = useState<'ROOMS' | 'PRICING' | 'EQUIPMENT'>('ROOMS');
+    const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-    // 1. Dữ liệu phòng họp
-    const [rooms, setRooms] = useState<RoomItem[]>([
-        {
-            id: 'r-01',
-            name: 'Meeting Room Alpha',
-            roomType: 'STANDARD',
-            capacity: 8,
-            hourlyRate: 350000,
-            amenities: { projector: true, whiteboard: true, highSpeedWifi: true },
-            isActive: true
-        },
-        {
-            id: 'r-02',
-            name: 'Executive Room Tokyo',
-            roomType: 'EXECUTIVE',
-            capacity: 16,
-            hourlyRate: 650000,
-            amenities: { projector: true, whiteboard: true, videoConf: true, soundSystem: true, highSpeedWifi: true },
-            isActive: true
-        },
-        {
-            id: 'r-03',
-            name: 'Boardroom New York',
-            roomType: 'BOARDROOM',
-            capacity: 24,
-            hourlyRate: 1200000,
-            amenities: { projector: true, whiteboard: true, videoConf: true, soundSystem: true, smartTv: true, highSpeedWifi: true },
-            isActive: false // Đang bảo trì
-        }
-    ]);
+    // 1. Dữ liệu phòng họp - Khởi tạo từ persistent store
+    const [rooms, setRooms] = useState<RoomItem[]>(DEFAULT_ROOMS);
+
+    useEffect(() => {
+        // Tải dữ liệu phòng từ persistent LocalStorage
+        setRooms(roomStore.getRooms());
+
+        // Đăng ký nhận sự kiện cập nhật thời gian thực
+        const unsubscribe = roomStore.subscribe((updatedRooms) => {
+            setRooms(updatedRooms);
+        });
+
+        return () => unsubscribe();
+    }, []);
 
     // 2. Dữ liệu thiết bị
     const [equipments, setEquipments] = useState<EquipmentItem[]>([
@@ -125,31 +94,40 @@ function RoomManagementPage() {
     const handleSaveRoom = (e: React.FormEvent) => {
         e.preventDefault();
         if (editingRoomId) {
-            setRooms(rooms.map(r => r.id === editingRoomId ? {
-                ...r,
+            roomStore.updateRoom(editingRoomId, {
                 name: formName,
                 roomType: formType,
                 capacity: formCapacity,
                 hourlyRate: formRate,
                 amenities: formAmenities
-            } : r));
+            });
+            setToastMessage(`✅ Đã cập nhật thành công thông tin phòng [${formName}].`);
         } else {
-            const newRoom: RoomItem = {
-                id: `r-${Date.now()}`,
+            const added = roomStore.addRoom({
                 name: formName,
                 roomType: formType,
                 capacity: formCapacity,
                 hourlyRate: formRate,
                 amenities: formAmenities,
                 isActive: true
-            };
-            setRooms([...rooms, newRoom]);
+            });
+            setToastMessage(`✅ Đã thêm phòng họp mới [${added.name}]. Dữ liệu đã được lưu trữ và tự động đồng bộ.`);
         }
+        setRooms(roomStore.getRooms());
         setIsRoomModalOpen(false);
+        setTimeout(() => setToastMessage(null), 4000);
     };
 
-    const toggleMaintenance = (roomId: string) => {
-        setRooms(rooms.map(r => r.id === roomId ? { ...r, isActive: !r.isActive } : r));
+    const toggleMaintenance = async (roomId: string) => {
+        const updated = await roomStore.toggleMaintenance(roomId);
+        if (updated) {
+            setRooms(roomStore.getRooms());
+            const msg = updated.isActive
+                ? `🟢 ĐÃ MỞ LẠI PHÒNG [${updated.name}]: Phòng đã sẵn sàng đón khách và được hiển thị tại chức năng Thu tiền mặt.`
+                : `🟡 ĐÃ TẠM NGƯNG BẢO TRÌ [${updated.name}]: Phòng đã được chuyển sang chế độ bảo trì, các slot trống đã khóa và đã cập nhật sang chức năng Thu tiền mặt.`;
+            setToastMessage(msg);
+            setTimeout(() => setToastMessage(null), 5000);
+        }
     };
 
     const handleUpdateEquipmentStatus = (id: string, newStatus: 'OPERATIONAL' | 'MAINTENANCE' | 'DEFECTIVE') => {
@@ -165,6 +143,22 @@ function RoomManagementPage() {
             <AdminHeader />
 
             <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
+                {/* Thông báo trạng thái thời gian thực */}
+                {toastMessage && (
+                    <div className="p-4 rounded-xl bg-slate-900 border border-emerald-500/50 text-emerald-300 text-xs font-semibold shadow-lg flex items-center justify-between animate-fade-in">
+                        <div className="flex items-center space-x-2">
+                            <span className="text-base">🔔</span>
+                            <span>{toastMessage}</span>
+                        </div>
+                        <button
+                            onClick={() => setToastMessage(null)}
+                            className="text-slate-400 hover:text-white text-xs px-2 py-0.5"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                )}
+
                 {/* Header Title & Actions */}
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
