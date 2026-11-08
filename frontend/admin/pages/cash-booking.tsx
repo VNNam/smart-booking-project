@@ -239,9 +239,24 @@ function CashBookingPage() {
     const idempotencyKeyRef = useRef<string | null>(null);
 
     // --- State form thông tin khách hàng tại quầy ---
+    const [customerType, setCustomerType] = useState<'WALK_IN' | 'CORPORATE'>('WALK_IN');
+    const [selectedCompanyId, setSelectedCompanyId] = useState<string>('c0000000-0000-0000-0000-000000000001');
+    const [selectedMemberId, setSelectedMemberId] = useState<string>('u0000000-0000-0000-0000-000000000003');
     const [customerName, setCustomerName] = useState('');
     const [customerPhone, setCustomerPhone] = useState('');
     const [notes, setNotes] = useState('');
+
+    // Danh sách doanh nghiệp & thành viên mẫu để lễ tân tra cứu nhanh tại quầy
+    const CORPORATE_LIST = [
+        { id: 'c0000000-0000-0000-0000-000000000001', name: 'Tập Đoàn Công Nghệ Global Corp', taxCode: '0312345678' },
+        { id: 'c1111111-1111-1111-1111-111111111111', name: 'Tập đoàn Công nghệ FPT', taxCode: '0101234567' },
+        { id: 'c2222222-2222-2222-2222-222222222222', name: 'Tổng công ty Viễn thông Viettel', taxCode: '0108889999' }
+    ];
+
+    const MEMBER_LIST = [
+        { id: 'u0000000-0000-0000-0000-000000000003', companyId: 'c0000000-0000-0000-0000-000000000001', name: 'Nam Nguyễn (Thành viên VIP)', phone: '0888237961' },
+        { id: 'u4444444-4444-4444-4444-444444444444', companyId: 'c1111111-1111-1111-1111-111111111111', name: 'Nguyễn Văn Hội Viên', phone: '0901234567' }
+    ];
 
     // --- State tương tác & giao dịch ---
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -336,9 +351,14 @@ function CashBookingPage() {
         const payload = {
             roomId: selectedRoom.id,
             slotId: selectedSlot.id,
+            bookingDate: selectedDate,
+            startTime: selectedSlot.startTime,
+            endTime: selectedSlot.endTime,
             paymentMethod: 'CASH_ON_ARRIVAL',
             customerName: customerName.trim(),
             customerPhone: customerPhone.trim(),
+            companyId: customerType === 'CORPORATE' ? selectedCompanyId : undefined,
+            memberId: customerType === 'CORPORATE' ? selectedMemberId : undefined,
             notes: notes.trim()
         };
 
@@ -427,6 +447,7 @@ function CashBookingPage() {
     const handleResetForm = () => {
         setSelectedRoom(null);
         setSelectedSlot(null);
+        setCustomerType('WALK_IN');
         setCustomerName('');
         setCustomerPhone('');
         setNotes('');
@@ -710,6 +731,100 @@ function CashBookingPage() {
                                     </span>
                                 </div>
                             </div>
+
+                            {/* Bộ chọn phân loại khách: Vãng lai vs Thành viên công ty (B2B Walk-in Linkage) */}
+                            <div className="space-y-2">
+                                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                                    Đối tượng khách hàng *
+                                </label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setCustomerType('WALK_IN');
+                                            setCustomerName('');
+                                            setCustomerPhone('');
+                                        }}
+                                        className={`py-2 px-3 rounded-xl border text-xs font-medium transition ${
+                                            customerType === 'WALK_IN'
+                                                ? 'border-emerald-500 bg-emerald-500/20 text-emerald-300 font-semibold'
+                                                : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-white'
+                                        }`}
+                                    >
+                                        👤 Khách Vãng Lai
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setCustomerType('CORPORATE');
+                                            const m = MEMBER_LIST[0];
+                                            if (m) {
+                                                setSelectedMemberId(m.id);
+                                                setSelectedCompanyId(m.companyId);
+                                                setCustomerName(m.name);
+                                                setCustomerPhone(m.phone);
+                                            }
+                                        }}
+                                        className={`py-2 px-3 rounded-xl border text-xs font-medium transition ${
+                                            customerType === 'CORPORATE'
+                                                ? 'border-purple-500 bg-purple-500/20 text-purple-300 font-semibold'
+                                                : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-white'
+                                        }`}
+                                    >
+                                        🏢 Thành Viên Công Ty
+                                    </button>
+                                </div>
+                            </div>
+
+                            {customerType === 'CORPORATE' && (
+                                <div className="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 space-y-3 animate-in fade-in duration-150">
+                                    <div>
+                                        <label className="block text-[11px] font-semibold text-purple-300 uppercase mb-1">
+                                            Doanh nghiệp chủ quản
+                                        </label>
+                                        <select
+                                            value={selectedCompanyId}
+                                            onChange={(e) => {
+                                                const compId = e.target.value;
+                                                setSelectedCompanyId(compId);
+                                                const firstMem = MEMBER_LIST.find(m => m.companyId === compId);
+                                                if (firstMem) {
+                                                    setSelectedMemberId(firstMem.id);
+                                                    setCustomerName(firstMem.name);
+                                                    setCustomerPhone(firstMem.phone);
+                                                }
+                                            }}
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 text-xs focus:ring-1 focus:ring-purple-400 outline-none"
+                                        >
+                                            {CORPORATE_LIST.map(c => (
+                                                <option key={c.id} value={c.id}>{c.name} ({c.taxCode})</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-semibold text-purple-300 uppercase mb-1">
+                                            Thành viên đại diện đặt phòng
+                                        </label>
+                                        <select
+                                            value={selectedMemberId}
+                                            onChange={(e) => {
+                                                const memId = e.target.value;
+                                                setSelectedMemberId(memId);
+                                                const mem = MEMBER_LIST.find(m => m.id === memId);
+                                                if (mem) {
+                                                    setCustomerName(mem.name);
+                                                    setCustomerPhone(mem.phone);
+                                                }
+                                            }}
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 text-xs focus:ring-1 focus:ring-purple-400 outline-none"
+                                        >
+                                            {MEMBER_LIST.filter(m => m.companyId === selectedCompanyId).map(m => (
+                                                <option key={m.id} value={m.id}>{m.name} - {m.phone}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Trường Họ tên */}
                             <div>

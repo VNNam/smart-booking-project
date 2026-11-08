@@ -29,6 +29,15 @@
 | M6 | Nâng cấp Web Admin Hạn mức Doanh nghiệp (`corporate-debts.tsx`) áp dụng Member Quota Guard cho cả 3 loại hạn mức | `frontend/admin/pages/corporate-debts.tsx` | DONE |
 | M7 | Toàn bộ kiểm thử unit test & biên dịch Next.js (12/12 static pages) | `test/`, `frontend/admin/` | DONE |
 
+## 4. Giai đoạn Khắc phục Lỗi 400 Thu tiền mặt & Liên kết B2B (Walk-in Cash & Dynamic Slots) - HOÀN TẤT 100%
+| # | Hạng mục | Files | Status |
+|---|----------|-------|--------|
+| C1 | Trích xuất Custom Errors dùng chung (`BusinessErrors.ts`) triệt tiêu lỗi CommonJS circular dependency giữa BookingService và QuotaService | `src/errors/BusinessErrors.ts`, `src/services/BookingService.ts`, `src/services/QuotaService.ts` | DONE |
+| C2 | Mở rộng DTO & Xử lý Slot động (`BookingService.ts`): Hỗ trợ `bookingDate`, `startTime`, `endTime`, `companyId`, `memberId`; Tự động tra cứu hoặc sinh slot mới thay vì crash 400 / 22P02 khi nhận synthetic slot ID; Gán user_id thành viên và liên kết công nợ | `src/services/BookingService.ts` | DONE |
+| C3 | Nâng cấp UI Thu tiền mặt (`cash-booking.tsx`): Thêm bộ chọn Loại khách hàng (Vãng lai vs Doanh nghiệp/Thành viên), dropdown Công ty & Thành viên, đóng gói đầy đủ `bookingDate`, `startTime`, `endTime`, `companyId`, `memberId` vào payload | `frontend/admin/pages/cash-booking.tsx` | DONE |
+| C4 | Viết và kiểm thử thành công bộ Unit Test (`cash_booking_walkin.test.ts`): Bao phủ TC-CASH-01 (Happy path & SlotInPastError) và TC-CASH-02 (Corporate Member Linkage & Dynamic Slot Allocation) | `test/services/cash_booking_walkin.test.ts` | DONE |
+| C5 | Kiểm thử toàn diện hệ thống: 20/20 unit tests pass, Next.js production build 12/12 routes pass | `test/`, `frontend/admin/` | DONE |
+
 ## Log
 - [2026-11-08 16:32] Khởi tạo. Đã đọc: `database_erd.md`, `src/database/schema_v1.sql`, tail audit log.
 - [2026-11-08 16:34] Task 1 DONE. Phân tích ngữ cảnh B2B Quota & Date Range.
@@ -36,3 +45,4 @@
 - [2026-11-08 16:36] Task 3 DONE. Rà soát 4 lỗi S1 trong luồng thu tiền mặt.
 - [2026-11-08 16:51] Giai đoạn 2 DONE (F1-F5). Khắc phục toàn bộ 4 lỗi S1.
 - [2026-11-08 17:10] Giai đoạn 3 DONE (M1-M7). Hoàn tất toàn bộ kiến trúc B2B Quota, Calendar Guard và Đối soát Kế toán đa nguồn v1.5.
+- [2026-11-08 17:30] Giai đoạn 4 DONE (C1-C5). Khắc phục triệt để lỗi 400 Bad Request luồng Thu tiền mặt tại quầy, hỗ trợ slot động và liên kết thành viên B2B, pass 20/20 unit tests và Next.js build.

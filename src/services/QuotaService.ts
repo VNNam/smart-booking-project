@@ -11,7 +11,7 @@
 
 import { Pool, PoolClient } from 'pg';
 import { v4 as uuidv4 } from 'uuid';
-import { BusinessError } from './BookingService';
+import { BusinessError } from '../errors/BusinessErrors';
 import { getVnDateParts, toVnDayRange } from '../utils/businessTime';
 
 export type QuotaType = 'CREDIT' | 'BOOKINGS' | 'HOURS';

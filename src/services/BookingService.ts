@@ -37,10 +37,15 @@ export interface UserContext {
 
 export interface CreateBookingDto {
     roomId: string;
-    slotId: string;
+    slotId?: string;
+    bookingDate?: string;
+    startTime?: string;
+    endTime?: string;
     paymentMethod: PaymentMethod;
     gatewayProvider?: 'VNPAY' | 'MOMO' | 'ZALOPAY';
     corporateDebtAccount?: string;
+    companyId?: string;
+    memberId?: string;
     customerName?: string;
     customerPhone?: string;
     notes?: string;
@@ -76,46 +81,15 @@ export interface CancellationResult {
 // ==============================================================================
 // 2. CUSTOM BUSINESS ERRORS
 // ==============================================================================
-export class BusinessError extends Error {
-    constructor(public code: string, message: string, public statusCode: number = 400) {
-        super(message);
-        this.name = 'BusinessError';
-    }
-}
-
-export class SlotConflictError extends BusinessError {
-    constructor(message = 'Phòng họp đã được người khác giữ chỗ hoặc vừa được xác nhận. Vui lòng chọn khung giờ khác.') {
-        super('ROOM_SLOT_UNAVAILABLE', message, 409);
-    }
-}
-
-export class InsufficientWalletBalanceError extends BusinessError {
-    constructor(message = 'Số dư ví thành viên không đủ để thanh toán phòng họp. Vui lòng nạp thêm tiền.') {
-        super('INSUFFICIENT_WALLET_BALANCE', message, 402);
-    }
-}
-
-export class ForbiddenError extends BusinessError {
-    constructor(message = 'Bạn không có quyền sử dụng phương thức thanh toán này.') {
-        super('PAYMENT_METHOD_FORBIDDEN', message, 403);
-    }
-}
-
-export class CreditLimitExceededError extends BusinessError {
-    constructor(message = 'Hạn mức công nợ hiện tại của doanh nghiệp không đủ để thanh toán đơn đặt phòng này.') {
-        super('CREDIT_LIMIT_EXCEEDED', message, 422);
-    }
-}
-
-/**
- * [BA-FIX CB-04 / G-14] Chặn đặt phòng & thu tiền cho khung giờ đã bắt đầu / đã qua.
- * Áp dụng server-side cho MỌI phương thức thanh toán (không phụ thuộc client).
- */
-export class SlotInPastError extends BusinessError {
-    constructor(message = 'Khung giờ đã bắt đầu hoặc đã qua. Không thể đặt phòng hoặc thu tiền cho khung giờ này.') {
-        super('SLOT_IN_PAST', message, 409);
-    }
-}
+export * from '../errors/BusinessErrors';
+import {
+    BusinessError,
+    SlotConflictError,
+    InsufficientWalletBalanceError,
+    ForbiddenError,
+    CreditLimitExceededError,
+    SlotInPastError
+} from '../errors/BusinessErrors';
 
 // ==============================================================================
 // 3. CORE BOOKING SERVICE IMPLEMENTATION
@@ -148,23 +122,98 @@ export class BookingService {
         const client: PoolClient = await this.dbPool.connect();
 
         try {
-            // 1. Kiểm tra thông tin phòng và slot trong CSDL
-            const roomSlotQuery = `
-                SELECT 
-                    r.id AS room_id, r.name AS room_name, r.hourly_rate,
-                    s.id AS slot_id, s.start_time, s.end_time, s.status AS slot_status,
-                    (s.start_time <= NOW()) AS is_past
-                FROM rooms r
-                JOIN slots s ON s.room_id = r.id
-                WHERE r.id = $1 AND s.id = $2 AND r.is_active = TRUE;
-            `;
-            const roomSlotRes = await client.query(roomSlotQuery, [dto.roomId, dto.slotId]);
+            // UUID regex chấp nhận cả UUID v4 lẫn định dạng UUID có prefix (r0000000-..., s0000000-..., u0000000-...) của hệ thống
+            const UUID_REGEX = /^[0-9a-z]{8}-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{12}$/i;
 
-            if (roomSlotRes.rows.length === 0) {
+            if (!dto.roomId || !UUID_REGEX.test(dto.roomId)) {
+                throw new BusinessError('INVALID_ROOM_ID', 'Mã phòng họp không đúng định dạng UUID.', 400);
+            }
+
+            let slotRow: any = null;
+            let resolvedSlotId = dto.slotId;
+
+            // 1.1. Tra cứu theo slotId nếu là UUID hợp lệ
+            if (resolvedSlotId && UUID_REGEX.test(resolvedSlotId)) {
+                const roomSlotRes = await client.query(`
+                    SELECT 
+                        r.id AS room_id, r.name AS room_name, r.hourly_rate,
+                        s.id AS slot_id, s.start_time, s.end_time, s.status AS slot_status,
+                        (s.start_time <= NOW()) AS is_past
+                    FROM rooms r
+                    JOIN slots s ON s.room_id = r.id
+                    WHERE r.id = $1 AND s.id = $2 AND r.is_active = TRUE;
+                `, [dto.roomId, resolvedSlotId]);
+
+                if (roomSlotRes.rows.length > 0) {
+                    slotRow = roomSlotRes.rows[0];
+                }
+            }
+
+            // 1.2. Tra cứu hoặc phân bổ slot động nếu có startTime và endTime (hoặc khi slotId là chuỗi mã khung giờ)
+            if (!slotRow && dto.startTime && dto.endTime) {
+                const startTs = new Date(dto.startTime);
+                const endTs = new Date(dto.endTime);
+                if (Number.isNaN(startTs.getTime()) || Number.isNaN(endTs.getTime()) || endTs <= startTs) {
+                    throw new BusinessError('INVALID_TIME_RANGE', 'Thời gian bắt đầu hoặc kết thúc khung giờ không hợp lệ.', 400);
+                }
+
+                const existingSlotRes = await client.query(`
+                    SELECT 
+                        r.id AS room_id, r.name AS room_name, r.hourly_rate,
+                        s.id AS slot_id, s.start_time, s.end_time, s.status AS slot_status,
+                        (s.start_time <= NOW()) AS is_past
+                    FROM rooms r
+                    JOIN slots s ON s.room_id = r.id
+                    WHERE r.id = $1 AND s.start_time = $2 AND s.end_time = $3 AND r.is_active = TRUE;
+                `, [dto.roomId, startTs.toISOString(), endTs.toISOString()]);
+
+                if (existingSlotRes.rows.length > 0) {
+                    slotRow = existingSlotRes.rows[0];
+                    resolvedSlotId = slotRow.slot_id;
+                } else {
+                    // Kiểm tra phòng họp
+                    const roomRes = await client.query(
+                        'SELECT id, name, hourly_rate FROM rooms WHERE id = $1 AND is_active = TRUE;',
+                        [dto.roomId]
+                    );
+                    if (roomRes.rows.length === 0) {
+                        throw new BusinessError('NOT_FOUND', 'Không tìm thấy thông tin phòng họp hoặc phòng đang tạm khóa.', 404);
+                    }
+                    const room = roomRes.rows[0];
+                    const isPast = startTs.getTime() <= Date.now();
+
+                    // Tạo mới slot trong DB
+                    resolvedSlotId = uuidv4();
+                    await client.query(`
+                        INSERT INTO slots (id, room_id, start_time, end_time, status)
+                        VALUES ($1, $2, $3, $4, 'AVAILABLE');
+                    `, [resolvedSlotId, dto.roomId, startTs.toISOString(), endTs.toISOString()]);
+
+                    slotRow = {
+                        room_id: room.id,
+                        room_name: room.name,
+                        hourly_rate: room.hourly_rate,
+                        slot_id: resolvedSlotId,
+                        start_time: startTs,
+                        end_time: endTs,
+                        slot_status: 'AVAILABLE',
+                        is_past: isPast
+                    };
+                }
+            }
+
+            if (!slotRow) {
+                if (dto.slotId && !UUID_REGEX.test(dto.slotId)) {
+                    throw new BusinessError(
+                        'INVALID_SLOT_FORMAT',
+                        `Mã khung giờ '${dto.slotId}' không đúng định dạng UUID và thiếu thông tin startTime/endTime để xác định khung giờ.`,
+                        400
+                    );
+                }
                 throw new BusinessError('NOT_FOUND', 'Không tìm thấy thông tin phòng họp hoặc khung giờ hợp lệ.', 404);
             }
 
-            const { hourly_rate, start_time, end_time, slot_status, is_past } = roomSlotRes.rows[0];
+            const { hourly_rate, start_time, end_time, slot_status, is_past } = slotRow;
 
             // [BA-FIX CB-04 / G-14] Guard thời gian dùng đồng hồ CSDL (NOW()) làm nguồn chuẩn duy nhất,
             // tránh phụ thuộc đồng hồ máy lễ tân hoặc timezone của app server.
@@ -188,14 +237,14 @@ export class BookingService {
             const bookingId = uuidv4();
 
             // ==================================================================
-            // PHÂN NHÁNH XỬ LÝ THEO 4 PHƯƠNG THỨC THANH TOÁN
+            // PHÂN NHÁNH XỬ LÝ THEO CÁC PHƯƠNG THỨC THANH TOÁN
             // ==================================================================
 
             // ------------------------------------------------------------------
             // LUỒNG 1: ONLINE PAYMENT (VNPAY / MOMO / ZALOPAY) - 10 PHÚT TTL
             // ------------------------------------------------------------------
             if (dto.paymentMethod === 'ONLINE_GATEWAY') {
-                const redisLockKey = `slot:${dto.slotId}:lock`;
+                const redisLockKey = `slot:${resolvedSlotId}:lock`;
 
                 // Cố gắng lấy Distributed Lock trên Redis với TTL 10 phút (SET ... NX PX 600000)
                 const lockAcquired = await this.redisClient.set(
@@ -225,13 +274,13 @@ export class BookingService {
                         RETURNING id, booking_code, created_at;
                     `;
                     const bookingInsert = await client.query(insertBookingQuery, [
-                        bookingId, user.id, dto.roomId, dto.slotId, bookingCode, totalAmount, lockExpiresAt, dto.notes || null
+                        bookingId, user.id, dto.roomId, resolvedSlotId, bookingCode, totalAmount, lockExpiresAt, dto.notes || null
                     ]);
 
                     // Cập nhật trạng thái slot thành LOCKED
                     await client.query(
                         'UPDATE slots SET status = $1, lock_expires_at = $2 WHERE id = $3',
-                        ['LOCKED', lockExpiresAt, dto.slotId]
+                        ['LOCKED', lockExpiresAt, resolvedSlotId]
                     );
 
                     // Transactional Outbox Pattern: Lưu sự kiện chờ gửi thông báo giữ phòng
@@ -318,11 +367,11 @@ export class BookingService {
                         RETURNING id, booking_code, created_at;
                     `;
                     const bookingInsert = await client.query(insertBookingQuery, [
-                        bookingId, user.id, dto.roomId, dto.slotId, bookingCode, totalAmount, dto.notes || null
+                        bookingId, user.id, dto.roomId, resolvedSlotId, bookingCode, totalAmount, dto.notes || null
                     ]);
 
                     // Cập nhật trạng thái slot thành BOOKED
-                    await client.query('UPDATE slots SET status = $1 WHERE id = $2', ['BOOKED', dto.slotId]);
+                    await client.query('UPDATE slots SET status = $1 WHERE id = $2', ['BOOKED', resolvedSlotId]);
 
                     // Transactional Outbox Pattern: Lưu event phát hành mã QR
                     await client.query(`
@@ -336,7 +385,7 @@ export class BookingService {
                         id: bookingId,
                         bookingCode,
                         roomId: dto.roomId,
-                        slotId: dto.slotId,
+                        slotId: resolvedSlotId,
                         bookingStatus: 'CONFIRMED',
                         paymentMethod: 'PREPAID_WALLET',
                         paymentStatus: 'PAID',
@@ -362,6 +411,24 @@ export class BookingService {
                     throw new ForbiddenError('Phương thức CASH_ON_ARRIVAL chỉ dành cho Quản lý / Lễ tân trên Web Admin.');
                 }
 
+                // Hỗ trợ liên kết thành viên doanh nghiệp khi đặt phòng thu tiền mặt tại quầy (TC-CASH-02)
+                let bookingUserId = user.id;
+                let corporateAccount = dto.corporateDebtAccount || dto.companyId || null;
+
+                if (dto.memberId) {
+                    if (!UUID_REGEX.test(dto.memberId)) {
+                        throw new BusinessError('INVALID_MEMBER_ID', 'Mã thành viên không đúng định dạng UUID.', 400);
+                    }
+                    const memberRes = await client.query('SELECT id, company_id, full_name FROM users WHERE id = $1', [dto.memberId]);
+                    if (memberRes.rows.length === 0) {
+                        throw new BusinessError('MEMBER_NOT_FOUND', 'Không tìm thấy tài khoản thành viên công ty.', 404);
+                    }
+                    bookingUserId = dto.memberId;
+                    if (!corporateAccount && memberRes.rows[0].company_id) {
+                        corporateAccount = memberRes.rows[0].company_id;
+                    }
+                }
+
                 await client.query('BEGIN');
                 try {
                     // Chèn booking với trạng thái CONFIRMED_PAID
@@ -369,16 +436,16 @@ export class BookingService {
                         INSERT INTO bookings (
                             id, user_id, room_id, slot_id, booking_code,
                             booking_status, payment_method, payment_status,
-                            booking_channel, total_amount, notes
-                        ) VALUES ($1, $2, $3, $4, $5, 'CONFIRMED_PAID', 'CASH_ON_ARRIVAL', 'PAID', 'WEB_ADMIN', $6, $7)
+                            booking_channel, total_amount, corporate_debt_account, notes
+                        ) VALUES ($1, $2, $3, $4, $5, 'CONFIRMED_PAID', 'CASH_ON_ARRIVAL', 'PAID', 'WEB_ADMIN', $6, $7, $8)
                         RETURNING id, booking_code, created_at;
                     `;
                     const bookingInsert = await client.query(insertBookingQuery, [
-                        bookingId, user.id, dto.roomId, dto.slotId, bookingCode, totalAmount, dto.notes || null
+                        bookingId, bookingUserId, dto.roomId, resolvedSlotId, bookingCode, totalAmount, corporateAccount, dto.notes || null
                     ]);
 
                     // Cập nhật slot thành BOOKED
-                    await client.query('UPDATE slots SET status = $1 WHERE id = $2', ['BOOKED', dto.slotId]);
+                    await client.query('UPDATE slots SET status = $1 WHERE id = $2', ['BOOKED', resolvedSlotId]);
 
                     // Ghi nhận ngay vào sổ quỹ tiền mặt CASH_BOOK_LOGS
                     const cashBookEntryId = uuidv4();
@@ -392,7 +459,7 @@ export class BookingService {
                     await client.query(`
                         INSERT INTO outbox_events (aggregate_type, aggregate_id, event_type, payload, status)
                         VALUES ('BOOKING', $1, 'BOOKING_CONFIRMED', $2, 'PENDING');
-                    `, [bookingId, JSON.stringify({ bookingCode, totalAmount, cashBookEntryId })]);
+                    `, [bookingId, JSON.stringify({ bookingCode, totalAmount, cashBookEntryId, memberId: dto.memberId })]);
 
                     await client.query('COMMIT');
 
@@ -400,12 +467,13 @@ export class BookingService {
                         id: bookingId,
                         bookingCode,
                         roomId: dto.roomId,
-                        slotId: dto.slotId,
+                        slotId: resolvedSlotId,
                         bookingStatus: 'CONFIRMED_PAID',
                         paymentMethod: 'CASH_ON_ARRIVAL',
                         paymentStatus: 'PAID',
                         totalAmount,
                         cashBookEntryId,
+                        corporateDebtAccount: corporateAccount,
                         createdAt: bookingInsert.rows[0].created_at
                     };
                 } catch (err: any) {
@@ -472,10 +540,10 @@ export class BookingService {
                         RETURNING id, booking_code, created_at;
                     `;
                     const bookingInsert = await client.query(insertBookingQuery, [
-                        bookingId, user.id, dto.roomId, dto.slotId, bookingCode, totalAmount, dto.corporateDebtAccount, dto.notes || null
+                        bookingId, user.id, dto.roomId, resolvedSlotId, bookingCode, totalAmount, dto.corporateDebtAccount, dto.notes || null
                     ]);
 
-                    await client.query('UPDATE slots SET status = $1 WHERE id = $2', ['BOOKED', dto.slotId]);
+                    await client.query('UPDATE slots SET status = $1 WHERE id = $2', ['BOOKED', resolvedSlotId]);
 
                     // Transactional Outbox
                     await client.query(`
@@ -489,7 +557,7 @@ export class BookingService {
                         id: bookingId,
                         bookingCode,
                         roomId: dto.roomId,
-                        slotId: dto.slotId,
+                        slotId: resolvedSlotId,
                         bookingStatus: 'CONFIRMED_DEBT',
                         paymentMethod: 'POSTPAID_DEBT',
                         paymentStatus: 'UNPAID',
@@ -547,10 +615,10 @@ export class BookingService {
                     `;
 
                     const bookingInsert = await client.query(insertBookingQuery, [
-                        bookingId, user.id, dto.roomId, dto.slotId, bookingCode, totalAmount, JSON.stringify(quotaResult.consumed), dto.notes || null
+                        bookingId, user.id, dto.roomId, resolvedSlotId, bookingCode, totalAmount, JSON.stringify(quotaResult.consumed), dto.notes || null
                     ]);
 
-                    await client.query('UPDATE slots SET status = $1 WHERE id = $2', ['BOOKED', dto.slotId]);
+                    await client.query('UPDATE slots SET status = $1 WHERE id = $2', ['BOOKED', resolvedSlotId]);
 
                     // Transactional Outbox
                     await client.query(`
@@ -564,7 +632,7 @@ export class BookingService {
                         id: bookingId,
                         bookingCode,
                         roomId: dto.roomId,
-                        slotId: dto.slotId,
+                        slotId: resolvedSlotId,
                         bookingStatus: 'CONFIRMED_DEBT',
                         paymentMethod: 'CORPORATE_QUOTA',
                         paymentStatus: 'PAID',

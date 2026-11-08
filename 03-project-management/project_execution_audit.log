@@ -156,3 +156,17 @@
   * Unit Test Suites: 16/16 tests PASSED in businessTime and quota_accounting suites.
   * Web Admin Next.js Build: 12/12 static routes compiled successfully (Exit Code 0).
 - Status: ALL_TASKS_COMPLETED_SUCCESSFULLY.
+
+---
+[2026-11-08 17:31:00] [FIX-CASH-400-B2B-LINKAGE-COMPLETE] [SA_Agent & Dev_Agent & QA_Agent]
+- Component: Walk-in Cash Booking (`/bookings`) & Corporate Member Linkage
+- Problems Resolved:
+  1. Root cause of 400 Bad Request error: Synthetic slotId (e.g. `slot-r0000000...-1`) caused Postgres 22P02 UUID syntax crash; payload lacked bookingDate, startTime, endTime, and B2B corporate attributes.
+  2. Fixed circular dependency between `BookingService.ts` and `QuotaService.ts` by extracting error hierarchy into `src/errors/BusinessErrors.ts`.
+  3. Dynamic Slot Resolution in `BookingService.ts`: Seamlessly validates and resolves slots by UUID or (room_id, start_time, end_time), automatically generating missing slot records in `slots` table.
+  4. B2B Corporate Linkage in `BookingService.ts`: For `CASH_ON_ARRIVAL`, when `memberId` and/or `companyId` are provided, attributes the booking to the member's `user_id` and records `corporate_debt_account` for corporate reconciliation.
+  5. UI Enhancement in `cash-booking.tsx`: Added Customer Type toggle (`WALK_IN` vs `CORPORATE`), Company & Member selection dropdowns, packaging `bookingDate`, `startTime`, `endTime`, `companyId`, `memberId` into the submit request.
+- Verification Results:
+  * Unit Tests: 20/20 PASSED across 3 test suites (`test/utils/businessTime.test.ts`, `test/services/quota_accounting.test.ts`, `test/services/cash_booking_walkin.test.ts`).
+  * Frontend Admin Build: 12/12 static pages compiled successfully with Next.js (Exit Code 0).
+- Status: PRODUCTION_READY_AND_VERIFIED.
