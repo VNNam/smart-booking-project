@@ -59,8 +59,17 @@ function formatVND(amount: number): string {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 }
 
-function formatTime(isoString: string): string {
-    const d = new Date(isoString);
+function formatTime(isoOrLocalString: string): string {
+    // Trích xuất trực tiếp giờ và phút từ định dạng ISO/Local YYYY-MM-DDTHH:mm:ss tránh lệch múi giờ UTC+7
+    if (isoOrLocalString.includes('T')) {
+        const timePart = isoOrLocalString.split('T')[1];
+        if (timePart) {
+            const cleanTime = timePart.replace('Z', '');
+            const [hh, mm] = cleanTime.split(':');
+            return `${hh}:${mm}`;
+        }
+    }
+    const d = new Date(isoOrLocalString);
     return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
@@ -92,15 +101,17 @@ function CashBookingPage() {
         return () => unsubscribe();
     }, []);
 
-    // Tự động sinh danh sách Slot cho tất cả phòng dựa trên ngày được chọn và trạng thái bảo trì
+    // Tự động sinh danh sách Slot cho tất cả phòng dựa trên ngày được chọn (Giờ hành chính chuẩn 08:00 -> 21:00)
     useEffect(() => {
         const generatedSlots: Slot[] = [];
+        // Khung giờ theo chuẩn giờ địa phương Việt Nam (không gắn hậu tố Z để tránh lệch múi giờ sang ngày hôm sau)
         const timeFrames = [
-            { start: '08:30:00Z', end: '10:30:00Z' },
-            { start: '11:00:00Z', end: '13:00:00Z' },
-            { start: '14:00:00Z', end: '16:00:00Z' },
-            { start: '16:30:00Z', end: '18:30:00Z' },
-            { start: '19:00:00Z', end: '21:00:00Z' }
+            { start: '08:00:00', end: '10:00:00' },
+            { start: '10:00:00', end: '12:00:00' },
+            { start: '13:00:00', end: '15:00:00' },
+            { start: '15:00:00', end: '17:00:00' },
+            { start: '17:00:00', end: '19:00:00' },
+            { start: '19:00:00', end: '21:00:00' }
         ];
 
         rooms.forEach((r, rIdx) => {

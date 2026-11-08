@@ -2,26 +2,15 @@ import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import AdminHeader from '../../components/AdminHeader';
 import { withAuth } from '../../components/withAuth';
-import { roomStore, RoomItem, DEFAULT_ROOMS } from '../../lib/roomStore';
-
-interface EquipmentItem {
-    id: string;
-    roomId: string;
-    roomName: string;
-    equipmentName: string;
-    serialNumber: string;
-    status: 'OPERATIONAL' | 'MAINTENANCE' | 'DEFECTIVE';
-    notes?: string;
-}
-
-interface PricingRuleItem {
-    id: string;
-    roomName: string;
-    ruleName: string;
-    timeRange: string;
-    multiplier: number;
-    isActive: boolean;
-}
+import {
+    roomStore,
+    RoomItem,
+    PricingRuleItem,
+    EquipmentItem,
+    DEFAULT_ROOMS,
+    DEFAULT_PRICING_RULES,
+    DEFAULT_EQUIPMENTS
+} from '../../lib/roomStore';
 
 function formatVND(amount: number): string {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
@@ -31,14 +20,18 @@ function RoomManagementPage() {
     const [activeTab, setActiveTab] = useState<'ROOMS' | 'PRICING' | 'EQUIPMENT'>('ROOMS');
     const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-    // 1. Dữ liệu phòng họp - Khởi tạo từ persistent store
+    // =========================================================================
+    // 1. DATA STATES - LOAD TỪ PERSISTENT STORE
+    // =========================================================================
     const [rooms, setRooms] = useState<RoomItem[]>(DEFAULT_ROOMS);
+    const [pricingRules, setPricingRules] = useState<PricingRuleItem[]>(DEFAULT_PRICING_RULES);
+    const [equipments, setEquipments] = useState<EquipmentItem[]>(DEFAULT_EQUIPMENTS);
 
     useEffect(() => {
-        // Tải dữ liệu phòng từ persistent LocalStorage
         setRooms(roomStore.getRooms());
+        setPricingRules(roomStore.getPricingRules());
+        setEquipments(roomStore.getEquipments());
 
-        // Đăng ký nhận sự kiện cập nhật thời gian thực
         const unsubscribe = roomStore.subscribe((updatedRooms) => {
             setRooms(updatedRooms);
         });
@@ -46,23 +39,9 @@ function RoomManagementPage() {
         return () => unsubscribe();
     }, []);
 
-    // 2. Dữ liệu thiết bị
-    const [equipments, setEquipments] = useState<EquipmentItem[]>([
-        { id: 'eq-01', roomId: 'r-01', roomName: 'Meeting Room Alpha', equipmentName: 'Máy chiếu Epson 1080p', serialNumber: 'EPS-2026-001', status: 'OPERATIONAL' },
-        { id: 'eq-02', roomId: 'r-01', roomName: 'Meeting Room Alpha', equipmentName: 'Bảng kính từ tính 2.4m', serialNumber: 'GLS-2026-002', status: 'OPERATIONAL' },
-        { id: 'eq-03', roomId: 'r-02', roomName: 'Executive Room Tokyo', equipmentName: 'Camera Hội Nghị Logitech Rally 4K', serialNumber: 'LOG-4K-9901', status: 'OPERATIONAL' },
-        { id: 'eq-04', roomId: 'r-02', roomName: 'Executive Room Tokyo', equipmentName: 'Loa hội nghị Jabra Speak 710', serialNumber: 'JAB-710-332', status: 'MAINTENANCE', notes: 'Chờ thay cáp nguồn' },
-        { id: 'eq-05', roomId: 'r-03', roomName: 'Boardroom New York', equipmentName: 'Màn hình cảm ứng tương tác Maxhub 86"', serialNumber: 'MAX-86-888', status: 'DEFECTIVE', notes: 'Bị lỗi cảm ứng góc trái' }
-    ]);
-
-    // 3. Dữ liệu bảng giá động
-    const [pricingRules, setPricingRules] = useState<PricingRuleItem[]>([
-        { id: 'pr-01', roomName: 'Tất cả các phòng', ruleName: 'Giờ Vàng Cao Điểm Buổi Sáng', timeRange: '09:00 - 11:00', multiplier: 1.25, isActive: true },
-        { id: 'pr-02', roomName: 'Tất cả các phòng', ruleName: 'Giờ Vàng Cao Điểm Buổi Chiều', timeRange: '14:00 - 16:00', multiplier: 1.25, isActive: true },
-        { id: 'pr-03', roomName: 'Executive & Boardroom', ruleName: 'Phụ thu Ngoài giờ & Cuối tuần', timeRange: 'Sau 18:00 & Thứ 7, CN', multiplier: 1.15, isActive: true }
-    ]);
-
-    // Modal state thêm/sửa phòng
+    // =========================================================================
+    // 2. MODAL & FORM STATE: PHÒNG HỌP (ROOMS)
+    // =========================================================================
     const [isRoomModalOpen, setIsRoomModalOpen] = useState<boolean>(false);
     const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
     const [formName, setFormName] = useState<string>('');
@@ -111,7 +90,7 @@ function RoomManagementPage() {
                 amenities: formAmenities,
                 isActive: true
             });
-            setToastMessage(`✅ Đã thêm phòng họp mới [${added.name}]. Dữ liệu đã được lưu trữ và tự động đồng bộ.`);
+            setToastMessage(`✅ Đã thêm phòng họp mới [${added.name}]. Dữ liệu đã lưu trữ bền vững.`);
         }
         setRooms(roomStore.getRooms());
         setIsRoomModalOpen(false);
@@ -130,8 +109,170 @@ function RoomManagementPage() {
         }
     };
 
+    // =========================================================================
+    // 3. MODAL & FORM STATE: QUY TẮC GIÁ ĐỘNG & KHUNG GIỜ (PRICING)
+    // =========================================================================
+    const [isPricingModalOpen, setIsPricingModalOpen] = useState<boolean>(false);
+    const [editingPricingId, setEditingPricingId] = useState<string | null>(null);
+    const [formRuleName, setFormRuleName] = useState<string>('');
+    const [formRuleRoomName, setFormRuleRoomName] = useState<string>('Tất cả các phòng');
+    const [formRuleStartTime, setFormRuleStartTime] = useState<string>('09:00');
+    const [formRuleEndTime, setFormRuleEndTime] = useState<string>('11:00');
+    const [formRuleDays, setFormRuleDays] = useState<string>('Thứ 2 - Thứ 6');
+    const [formRuleMultiplier, setFormRuleMultiplier] = useState<number>(1.25);
+
+    const openCreatePricingModal = () => {
+        setEditingPricingId(null);
+        setFormRuleName('');
+        setFormRuleRoomName('Tất cả các phòng');
+        setFormRuleStartTime('09:00');
+        setFormRuleEndTime('11:00');
+        setFormRuleDays('Thứ 2 - Thứ 6');
+        setFormRuleMultiplier(1.25);
+        setIsPricingModalOpen(true);
+    };
+
+    const openEditPricingModal = (rule: PricingRuleItem) => {
+        setEditingPricingId(rule.id);
+        setFormRuleName(rule.ruleName);
+        setFormRuleRoomName(rule.roomName);
+        setFormRuleStartTime(rule.startTime || '09:00');
+        setFormRuleEndTime(rule.endTime || '11:00');
+        setFormRuleDays(rule.applicableDays || 'Thứ 2 - Thứ 6');
+        setFormRuleMultiplier(rule.multiplier);
+        setIsPricingModalOpen(true);
+    };
+
+    const handleSavePricingRule = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (editingPricingId) {
+            roomStore.updatePricingRule(editingPricingId, {
+                ruleName: formRuleName,
+                roomName: formRuleRoomName,
+                startTime: formRuleStartTime,
+                endTime: formRuleEndTime,
+                applicableDays: formRuleDays,
+                multiplier: formRuleMultiplier
+            });
+            setToastMessage(`✅ Đã cập nhật quy tắc giá & khung giờ [${formRuleName}].`);
+        } else {
+            roomStore.addPricingRule({
+                ruleName: formRuleName,
+                roomName: formRuleRoomName,
+                startTime: formRuleStartTime,
+                endTime: formRuleEndTime,
+                applicableDays: formRuleDays,
+                multiplier: formRuleMultiplier,
+                isActive: true
+            });
+            setToastMessage(`✅ Đã thêm quy tắc giá & khung giờ mới [${formRuleName}].`);
+        }
+        setPricingRules(roomStore.getPricingRules());
+        setIsPricingModalOpen(false);
+        setTimeout(() => setToastMessage(null), 4000);
+    };
+
+    const handleTogglePricingRule = (id: string) => {
+        const updated = roomStore.togglePricingRule(id);
+        if (updated) {
+            setPricingRules(roomStore.getPricingRules());
+            setToastMessage(`Đã ${updated.isActive ? 'KÍCH HOẠT' : 'TẠM TẮT'} quy tắc giá [${updated.ruleName}].`);
+            setTimeout(() => setToastMessage(null), 3000);
+        }
+    };
+
+    const handleDeletePricingRule = (id: string, name: string) => {
+        if (confirm(`Bạn có chắc chắn muốn xóa quy tắc giá [${name}]?`)) {
+            roomStore.deletePricingRule(id);
+            setPricingRules(roomStore.getPricingRules());
+            setToastMessage(`Đã xóa quy tắc giá [${name}].`);
+            setTimeout(() => setToastMessage(null), 3000);
+        }
+    };
+
+    // =========================================================================
+    // 4. MODAL & FORM STATE: TÀI SẢN & THIẾT BỊ (EQUIPMENT)
+    // =========================================================================
+    const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState<boolean>(false);
+    const [editingEquipmentId, setEditingEquipmentId] = useState<string | null>(null);
+    const [formEqRoomId, setFormEqRoomId] = useState<string>('');
+    const [formEqName, setFormEqName] = useState<string>('');
+    const [formEqSerial, setFormEqSerial] = useState<string>('');
+    const [formEqQuantity, setFormEqQuantity] = useState<number>(1);
+    const [formEqStatus, setFormEqStatus] = useState<'OPERATIONAL' | 'MAINTENANCE' | 'DEFECTIVE'>('OPERATIONAL');
+    const [formEqNotes, setFormEqNotes] = useState<string>('');
+
+    const openCreateEquipmentModal = () => {
+        setEditingEquipmentId(null);
+        setFormEqRoomId(rooms[0]?.id || '');
+        setFormEqName('');
+        setFormEqSerial(`SN-${Date.now().toString().slice(-6)}`);
+        setFormEqQuantity(1);
+        setFormEqStatus('OPERATIONAL');
+        setFormEqNotes('');
+        setIsEquipmentModalOpen(true);
+    };
+
+    const openEditEquipmentModal = (eq: EquipmentItem) => {
+        setEditingEquipmentId(eq.id);
+        setFormEqRoomId(eq.roomId);
+        setFormEqName(eq.equipmentName);
+        setFormEqSerial(eq.serialNumber);
+        setFormEqQuantity(eq.quantity || 1);
+        setFormEqStatus(eq.status);
+        setFormEqNotes(eq.notes || '');
+        setIsEquipmentModalOpen(true);
+    };
+
+    const handleSaveEquipment = (e: React.FormEvent) => {
+        e.preventDefault();
+        const selectedRoom = rooms.find(r => r.id === formEqRoomId) || rooms[0];
+        const roomName = selectedRoom ? selectedRoom.name : 'Phòng chung';
+
+        if (editingEquipmentId) {
+            roomStore.updateEquipment(editingEquipmentId, {
+                roomId: formEqRoomId,
+                roomName,
+                equipmentName: formEqName,
+                serialNumber: formEqSerial,
+                quantity: formEqQuantity,
+                status: formEqStatus,
+                notes: formEqNotes
+            });
+            setToastMessage(`✅ Đã cập nhật thiết bị [${formEqName}].`);
+        } else {
+            roomStore.addEquipment({
+                roomId: formEqRoomId,
+                roomName,
+                equipmentName: formEqName,
+                serialNumber: formEqSerial,
+                quantity: formEqQuantity,
+                status: formEqStatus,
+                notes: formEqNotes
+            });
+            setToastMessage(`✅ Đã thêm thiết bị mới [${formEqName}] vào phòng [${roomName}].`);
+        }
+        setEquipments(roomStore.getEquipments());
+        setIsEquipmentModalOpen(false);
+        setTimeout(() => setToastMessage(null), 4000);
+    };
+
     const handleUpdateEquipmentStatus = (id: string, newStatus: 'OPERATIONAL' | 'MAINTENANCE' | 'DEFECTIVE') => {
-        setEquipments(equipments.map(eq => eq.id === id ? { ...eq, status: newStatus } : eq));
+        const updated = roomStore.updateEquipmentStatus(id, newStatus);
+        if (updated) {
+            setEquipments(roomStore.getEquipments());
+            setToastMessage(`Đã cập nhật tình trạng thiết bị [${updated.equipmentName}] sang: ${newStatus === 'OPERATIONAL' ? '🟢 TỐT' : newStatus === 'MAINTENANCE' ? '🟡 BẢO DƯỠNG' : '🔴 HỎNG'}`);
+            setTimeout(() => setToastMessage(null), 3000);
+        }
+    };
+
+    const handleDeleteEquipment = (id: string, name: string) => {
+        if (confirm(`Bạn có chắc chắn muốn xóa thiết bị [${name}] khỏi danh mục kiểm kê?`)) {
+            roomStore.deleteEquipment(id);
+            setEquipments(roomStore.getEquipments());
+            setToastMessage(`Đã xóa thiết bị [${name}].`);
+            setTimeout(() => setToastMessage(null), 3000);
+        }
     };
 
     return (
@@ -159,20 +300,42 @@ function RoomManagementPage() {
                     </div>
                 )}
 
-                {/* Header Title & Actions */}
+                {/* Header Title & Dynamic Actions theo Tab */}
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                         <h1 className="text-xl font-bold text-white tracking-tight">Quản Trị Danh Mục Cơ Sở Vật Chất & Bảng Giá</h1>
-                        <p className="text-xs text-slate-400">Thiết lập danh mục phòng họp, định giá theo giờ cao điểm và kiểm kê tài sản thiết bị</p>
+                        <p className="text-xs text-slate-400">Thiết lập danh mục phòng họp, định giá theo khung giờ cao điểm và kiểm kê tài sản thiết bị</p>
                     </div>
 
-                    <button
-                        onClick={openCreateModal}
-                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center space-x-1.5"
-                    >
-                        <span>➕</span>
-                        <span>Thêm Phòng Họp Mới</span>
-                    </button>
+                    {activeTab === 'ROOMS' && (
+                        <button
+                            onClick={openCreateModal}
+                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center space-x-1.5"
+                        >
+                            <span>➕</span>
+                            <span>Thêm Phòng Họp Mới</span>
+                        </button>
+                    )}
+
+                    {activeTab === 'PRICING' && (
+                        <button
+                            onClick={openCreatePricingModal}
+                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center space-x-1.5"
+                        >
+                            <span>➕</span>
+                            <span>Thêm Khung Giờ & Giá Mới</span>
+                        </button>
+                    )}
+
+                    {activeTab === 'EQUIPMENT' && (
+                        <button
+                            onClick={openCreateEquipmentModal}
+                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center space-x-1.5"
+                        >
+                            <span>➕</span>
+                            <span>Thêm Thiết Bị / Tài Sản</span>
+                        </button>
+                    )}
                 </div>
 
                 {/* Navigation Tabs */}
@@ -195,7 +358,7 @@ function RoomManagementPage() {
                                 : 'text-slate-400 hover:text-slate-200'
                         }`}
                     >
-                        📈 Bảng Giá Động & Khung Giờ ({pricingRules.length})
+                        ⚡ Bảng Giá Động & Khung Giờ ({pricingRules.length})
                     </button>
                     <button
                         onClick={() => setActiveTab('EQUIPMENT')}
@@ -205,32 +368,33 @@ function RoomManagementPage() {
                                 : 'text-slate-400 hover:text-slate-200'
                         }`}
                     >
-                        📽️ Tài Sản & Trang Thiết Bị ({equipments.length})
+                        🛠️ Tài Sản & Trang Thiết Bị ({equipments.length})
                     </button>
                 </div>
 
-                {/* TAB 1: DANH MỤC PHÒNG HỌP */}
+                {/* =========================================================================
+                    TAB 1: DANH MỤC PHÒNG HỌP (ROOMS)
+                ========================================================================= */}
                 {activeTab === 'ROOMS' && (
                     <div className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {rooms.map(room => (
-                                <div key={room.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between space-y-4">
+                                <div
+                                    key={room.id}
+                                    className={`bg-slate-900 border rounded-2xl p-5 flex flex-col justify-between shadow-xl transition-all ${
+                                        room.isActive ? 'border-slate-800 hover:border-slate-700' : 'border-amber-500/40 bg-slate-900/60'
+                                    }`}
+                                >
                                     <div>
                                         <div className="flex items-start justify-between">
                                             <div>
-                                                <h3 className="text-base font-bold text-white">{room.name}</h3>
-                                                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold mt-1 ${
-                                                    room.roomType === 'BOARDROOM'
-                                                        ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
-                                                        : room.roomType === 'EXECUTIVE'
-                                                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                                                        : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                                }`}>
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300">
                                                     {room.roomType}
                                                 </span>
+                                                <h3 className="text-base font-bold text-white mt-1.5">{room.name}</h3>
                                             </div>
                                             <div className="text-right">
-                                                <p className="text-sm font-bold text-emerald-400">{formatVND(room.hourlyRate)}</p>
+                                                <p className="text-emerald-400 font-bold text-sm">{formatVND(room.hourlyRate)}</p>
                                                 <p className="text-[10px] text-slate-400">mỗi giờ</p>
                                             </div>
                                         </div>
@@ -258,7 +422,7 @@ function RoomManagementPage() {
                                         </div>
                                     </div>
 
-                                    <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
+                                    <div className="pt-3 mt-4 border-t border-slate-800/80 flex items-center justify-between text-xs">
                                         <button
                                             onClick={() => toggleMaintenance(room.id)}
                                             className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
@@ -282,14 +446,23 @@ function RoomManagementPage() {
                     </div>
                 )}
 
-                {/* TAB 2: BẢNG GIÁ ĐỘNG */}
+                {/* =========================================================================
+                    TAB 2: BẢNG GIÁ ĐỘNG & KHUNG GIỜ (PRICING)
+                ========================================================================= */}
                 {activeTab === 'PRICING' && (
                     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                             <div>
                                 <h3 className="text-sm font-bold text-white">Quy Tắc Định Giá Động Theo Khung Giờ (Dynamic Pricing Engine)</h3>
-                                <p className="text-xs text-slate-400">Tự động nhân hệ số giá vào các khung giờ vàng cao điểm hoặc ngày nghỉ cuối tuần</p>
+                                <p className="text-xs text-slate-400">Tự động điều chỉnh hệ số giá theo khung giờ vàng cao điểm, buổi tối hoặc ngày nghỉ cuối tuần</p>
                             </div>
+                            <button
+                                onClick={openCreatePricingModal}
+                                className="px-3.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 text-xs font-semibold flex items-center space-x-1.5 self-start"
+                            >
+                                <span>➕</span>
+                                <span>Thêm Quy Tắc Giá</span>
+                            </button>
                         </div>
 
                         <div className="overflow-x-auto">
@@ -298,9 +471,11 @@ function RoomManagementPage() {
                                     <tr className="border-b border-slate-800 text-slate-400">
                                         <th className="pb-3 font-semibold">Tên Quy Tắc</th>
                                         <th className="pb-3 font-semibold">Phạm Vi Áp Dụng</th>
-                                        <th className="pb-3 font-semibold">Khung Thời Gian</th>
+                                        <th className="pb-3 font-semibold">Khung Giờ</th>
+                                        <th className="pb-3 font-semibold">Ngày Áp Dụng</th>
                                         <th className="pb-3 font-semibold">Hệ Số Phụ Thu</th>
                                         <th className="pb-3 font-semibold">Trạng Thái</th>
+                                        <th className="pb-3 font-semibold text-right">Thao Tác</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/60">
@@ -308,12 +483,38 @@ function RoomManagementPage() {
                                         <tr key={rule.id} className="hover:bg-slate-800/30">
                                             <td className="py-3.5 font-bold text-white">{rule.ruleName}</td>
                                             <td className="py-3.5 text-slate-300">{rule.roomName}</td>
-                                            <td className="py-3.5 text-emerald-400 font-mono">{rule.timeRange}</td>
-                                            <td className="py-3.5 font-bold text-amber-400">+{((rule.multiplier - 1) * 100).toFixed(0)}% ({rule.multiplier}x)</td>
+                                            <td className="py-3.5 text-emerald-400 font-mono font-semibold">
+                                                {rule.startTime} - {rule.endTime}
+                                            </td>
+                                            <td className="py-3.5 text-slate-400">{rule.applicableDays}</td>
+                                            <td className="py-3.5 font-bold text-amber-400">
+                                                +{((rule.multiplier - 1) * 100).toFixed(0)}% ({rule.multiplier}x)
+                                            </td>
                                             <td className="py-3.5">
-                                                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
-                                                    ĐANG ÁP DỤNG
-                                                </span>
+                                                <button
+                                                    onClick={() => handleTogglePricingRule(rule.id)}
+                                                    className={`px-2 py-0.5 rounded text-[10px] font-bold border transition ${
+                                                        rule.isActive
+                                                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30'
+                                                            : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+                                                    }`}
+                                                >
+                                                    {rule.isActive ? '🟢 ĐANG ÁP DỤNG' : '⚪ TẠM TẮT'}
+                                                </button>
+                                            </td>
+                                            <td className="py-3.5 text-right space-x-1.5">
+                                                <button
+                                                    onClick={() => openEditPricingModal(rule)}
+                                                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 border border-slate-700 font-medium"
+                                                >
+                                                    ✏️ Sửa
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeletePricingRule(rule.id, rule.ruleName)}
+                                                    className="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-[11px] text-rose-400 border border-rose-500/30 font-medium"
+                                                >
+                                                    🗑️ Xóa
+                                                </button>
                                             </td>
                                         </tr>
                                     ))}
@@ -323,14 +524,23 @@ function RoomManagementPage() {
                     </div>
                 )}
 
-                {/* TAB 3: TRANG THIẾT BỊ / TÀI SẢN */}
+                {/* =========================================================================
+                    TAB 3: TÀI SẢN & TRANG THIẾT BỊ (EQUIPMENT)
+                ========================================================================= */}
                 {activeTab === 'EQUIPMENT' && (
                     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                             <div>
                                 <h3 className="text-sm font-bold text-white">Kiểm Kê Tài Sản & Trang Thiết Bị Phòng Họp</h3>
-                                <p className="text-xs text-slate-400">Theo dõi vòng đời hoạt động, bảo dưỡng và xử lý sự cố thiết bị tại từng phòng</p>
+                                <p className="text-xs text-slate-400">Theo dõi vòng đời hoạt động, số lượng, bảo dưỡng và xử lý sự cố thiết bị tại từng phòng</p>
                             </div>
+                            <button
+                                onClick={openCreateEquipmentModal}
+                                className="px-3.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 text-xs font-semibold flex items-center space-x-1.5 self-start"
+                            >
+                                <span>➕</span>
+                                <span>Thêm Thiết Bị</span>
+                            </button>
                         </div>
 
                         <div className="overflow-x-auto">
@@ -340,9 +550,10 @@ function RoomManagementPage() {
                                         <th className="pb-3 font-semibold">Tên Thiết Bị</th>
                                         <th className="pb-3 font-semibold">Mã Serial / Tài Sản</th>
                                         <th className="pb-3 font-semibold">Phòng Lắp Đặt</th>
+                                        <th className="pb-3 font-semibold">Số Lượng</th>
                                         <th className="pb-3 font-semibold">Tình Trạng</th>
                                         <th className="pb-3 font-semibold">Ghi Chú</th>
-                                        <th className="pb-3 font-semibold">Hành Động</th>
+                                        <th className="pb-3 font-semibold text-right">Hành Động</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/60">
@@ -351,30 +562,37 @@ function RoomManagementPage() {
                                             <td className="py-3.5 font-bold text-white">{eq.equipmentName}</td>
                                             <td className="py-3.5 font-mono text-slate-400">{eq.serialNumber}</td>
                                             <td className="py-3.5 text-slate-300">{eq.roomName}</td>
+                                            <td className="py-3.5 font-semibold text-slate-200">{eq.quantity || 1}</td>
                                             <td className="py-3.5">
-                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                                                    eq.status === 'OPERATIONAL'
-                                                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                                                        : eq.status === 'MAINTENANCE'
-                                                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                                                        : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
-                                                }`}>
-                                                    {eq.status === 'OPERATIONAL' ? '🟢 Tốt' : eq.status === 'MAINTENANCE' ? '🟡 Đang sửa' : '🔴 Hỏng'}
-                                                </span>
-                                            </td>
-                                            <td className="py-3.5 text-slate-400 italic">{eq.notes || '—'}</td>
-                                            <td className="py-3.5 space-x-1.5">
-                                                <button
-                                                    onClick={() => handleUpdateEquipmentStatus(eq.id, 'OPERATIONAL')}
-                                                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300"
+                                                <select
+                                                    value={eq.status}
+                                                    onChange={(e: any) => handleUpdateEquipmentStatus(eq.id, e.target.value)}
+                                                    className={`px-2 py-1 rounded text-[11px] font-bold border outline-none bg-slate-900 cursor-pointer ${
+                                                        eq.status === 'OPERATIONAL'
+                                                            ? 'text-emerald-400 border-emerald-500/40'
+                                                            : eq.status === 'MAINTENANCE'
+                                                            ? 'text-amber-400 border-amber-500/40'
+                                                            : 'text-rose-400 border-rose-500/40'
+                                                    }`}
                                                 >
-                                                    Đánh dấu Tốt
+                                                    <option value="OPERATIONAL">🟢 Tốt (Hoạt động)</option>
+                                                    <option value="MAINTENANCE">🟡 Bảo dưỡng / Sửa</option>
+                                                    <option value="DEFECTIVE">🔴 Hỏng hóc</option>
+                                                </select>
+                                            </td>
+                                            <td className="py-3.5 text-slate-400 italic max-w-xs truncate">{eq.notes || '—'}</td>
+                                            <td className="py-3.5 text-right space-x-1.5">
+                                                <button
+                                                    onClick={() => openEditEquipmentModal(eq)}
+                                                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 border border-slate-700 font-medium"
+                                                >
+                                                    ✏️ Sửa
                                                 </button>
                                                 <button
-                                                    onClick={() => handleUpdateEquipmentStatus(eq.id, 'DEFECTIVE')}
-                                                    className="px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-[10px] text-rose-400 border border-rose-500/30"
+                                                    onClick={() => handleDeleteEquipment(eq.id, eq.equipmentName)}
+                                                    className="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-[11px] text-rose-400 border border-rose-500/30 font-medium"
                                                 >
-                                                    Báo Hỏng
+                                                    🗑️ Xóa
                                                 </button>
                                             </td>
                                         </tr>
@@ -386,7 +604,9 @@ function RoomManagementPage() {
                 )}
             </main>
 
-            {/* MODAL THÊM / SỬA PHÒNG */}
+            {/* =========================================================================
+                MODAL 1: THÊM / SỬA PHÒNG HỌP
+            ========================================================================= */}
             {isRoomModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
                     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4">
@@ -453,61 +673,253 @@ function RoomManagementPage() {
                                 />
                             </div>
 
-                            <div>
-                                <label className="block font-semibold text-slate-300 mb-2">Trang thiết bị & Tiện ích sẵn có</label>
-                                <div className="grid grid-cols-2 gap-2 text-slate-300">
-                                    <label className="flex items-center space-x-2 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={formAmenities.projector || false}
-                                            onChange={(e) => setFormAmenities({ ...formAmenities, projector: e.target.checked })}
-                                            className="rounded bg-slate-800 border-slate-700 text-emerald-500"
-                                        />
-                                        <span>📽️ Máy chiếu</span>
-                                    </label>
-                                    <label className="flex items-center space-x-2 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={formAmenities.whiteboard || false}
-                                            onChange={(e) => setFormAmenities({ ...formAmenities, whiteboard: e.target.checked })}
-                                            className="rounded bg-slate-800 border-slate-700 text-emerald-500"
-                                        />
-                                        <span>📋 Bảng viết</span>
-                                    </label>
-                                    <label className="flex items-center space-x-2 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={formAmenities.videoConf || false}
-                                            onChange={(e) => setFormAmenities({ ...formAmenities, videoConf: e.target.checked })}
-                                            className="rounded bg-slate-800 border-slate-700 text-emerald-500"
-                                        />
-                                        <span>📹 Video Conference</span>
-                                    </label>
-                                    <label className="flex items-center space-x-2 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={formAmenities.soundSystem || false}
-                                            onChange={(e) => setFormAmenities({ ...formAmenities, soundSystem: e.target.checked })}
-                                            className="rounded bg-slate-800 border-slate-700 text-emerald-500"
-                                        />
-                                        <span>🔊 Hệ thống âm thanh</span>
-                                    </label>
-                                </div>
-                            </div>
-
-                            <div className="pt-2 flex justify-end space-x-2">
+                            <div className="pt-3 border-t border-slate-800 flex justify-end space-x-2">
                                 <button
                                     type="button"
                                     onClick={() => setIsRoomModalOpen(false)}
-                                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white"
+                                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
                                 >
                                     Hủy
                                 </button>
                                 <button
                                     type="submit"
-                                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold"
+                                    className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold shadow-lg shadow-emerald-500/20"
                                 >
                                     Lưu Thay Đổi
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* =========================================================================
+                MODAL 2: THÊM / SỬA QUY TẮC GIÁ & KHUNG GIỜ
+            ========================================================================= */}
+            {isPricingModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4">
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                            <h2 className="text-base font-bold text-white">
+                                {editingPricingId ? 'Chỉnh Sửa Quy Tắc Giá & Khung Giờ' : 'Thêm Quy Tắc Giá & Khung Giờ Mới'}
+                            </h2>
+                            <button
+                                onClick={() => setIsPricingModalOpen(false)}
+                                className="text-slate-400 hover:text-white text-lg font-bold"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleSavePricingRule} className="space-y-4 text-xs">
+                            <div>
+                                <label className="block font-semibold text-slate-300 mb-1">Tên quy tắc định giá</label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={formRuleName}
+                                    onChange={(e) => setFormRuleName(e.target.value)}
+                                    placeholder="Giờ Cao Điểm Sáng / Phụ thu Cuối tuần"
+                                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-white"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block font-semibold text-slate-300 mb-1">Phạm vi phòng áp dụng</label>
+                                <select
+                                    value={formRuleRoomName}
+                                    onChange={(e) => setFormRuleRoomName(e.target.value)}
+                                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-white"
+                                >
+                                    <option value="Tất cả các phòng">Tất cả các phòng</option>
+                                    <option value="Executive & Boardroom">Executive & Boardroom</option>
+                                    {rooms.map(r => (
+                                        <option key={r.id} value={r.name}>{r.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block font-semibold text-slate-300 mb-1">Giờ bắt đầu</label>
+                                    <input
+                                        type="time"
+                                        required
+                                        value={formRuleStartTime}
+                                        onChange={(e) => setFormRuleStartTime(e.target.value)}
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-white"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block font-semibold text-slate-300 mb-1">Giờ kết thúc</label>
+                                    <input
+                                        type="time"
+                                        required
+                                        value={formRuleEndTime}
+                                        onChange={(e) => setFormRuleEndTime(e.target.value)}
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-white"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block font-semibold text-slate-300 mb-1">Ngày trong tuần áp dụng</label>
+                                    <select
+                                        value={formRuleDays}
+                                        onChange={(e) => setFormRuleDays(e.target.value)}
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-white"
+                                    >
+                                        <option value="Tất cả các ngày">Tất cả các ngày</option>
+                                        <option value="Thứ 2 - Thứ 6">Thứ 2 - Thứ 6 (Ngày thường)</option>
+                                        <option value="Thứ 7 & CN">Thứ 7 & Chủ Nhật (Cuối tuần)</option>
+                                        <option value="Ngày Lễ / Tết">Ngày Lễ / Tết</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block font-semibold text-slate-300 mb-1">Hệ số nhân giá</label>
+                                    <select
+                                        value={formRuleMultiplier}
+                                        onChange={(e) => setFormRuleMultiplier(parseFloat(e.target.value))}
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-white"
+                                    >
+                                        <option value={1.1}>+10% (Nhân 1.1x)</option>
+                                        <option value={1.15}>+15% (Nhân 1.15x)</option>
+                                        <option value={1.2}>+20% (Nhân 1.2x)</option>
+                                        <option value={1.25}>+25% (Nhân 1.25x - Khuyến nghị)</option>
+                                        <option value={1.3}>+30% (Nhân 1.3x)</option>
+                                        <option value={1.5}>+50% (Nhân 1.5x - Giờ Vàng/Lễ)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="pt-3 border-t border-slate-800 flex justify-end space-x-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsPricingModalOpen(false)}
+                                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+                                >
+                                    Hủy
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold shadow-lg shadow-emerald-500/20"
+                                >
+                                    Lưu Quy Tắc Giá
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* =========================================================================
+                MODAL 3: THÊM / SỬA THIẾT BỊ / TÀI SẢN
+            ========================================================================= */}
+            {isEquipmentModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4">
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                            <h2 className="text-base font-bold text-white">
+                                {editingEquipmentId ? 'Chỉnh Sửa Thông Tin Thiết Bị' : 'Thêm Thiết Bị / Tài Sản Mới'}
+                            </h2>
+                            <button
+                                onClick={() => setIsEquipmentModalOpen(false)}
+                                className="text-slate-400 hover:text-white text-lg font-bold"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleSaveEquipment} className="space-y-4 text-xs">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block font-semibold text-slate-300 mb-1">Phòng lắp đặt</label>
+                                    <select
+                                        value={formEqRoomId}
+                                        onChange={(e) => setFormEqRoomId(e.target.value)}
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-white"
+                                    >
+                                        {rooms.map(r => (
+                                            <option key={r.id} value={r.id}>{r.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block font-semibold text-slate-300 mb-1">Số lượng</label>
+                                    <input
+                                        type="number"
+                                        required
+                                        min={1}
+                                        value={formEqQuantity}
+                                        onChange={(e) => setFormEqQuantity(parseInt(e.target.value, 10))}
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-white"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block font-semibold text-slate-300 mb-1">Tên thiết bị / Chủng loại</label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={formEqName}
+                                    onChange={(e) => setFormEqName(e.target.value)}
+                                    placeholder="Máy chiếu 4K Laser, Bảng kính từ tính, Camera 4K..."
+                                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-white"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block font-semibold text-slate-300 mb-1">Mã Serial / Mã tài sản</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        value={formEqSerial}
+                                        onChange={(e) => setFormEqSerial(e.target.value)}
+                                        placeholder="EPS-2026-001"
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-white font-mono"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block font-semibold text-slate-300 mb-1">Tình trạng vận hành</label>
+                                    <select
+                                        value={formEqStatus}
+                                        onChange={(e: any) => setFormEqStatus(e.target.value)}
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-white"
+                                    >
+                                        <option value="OPERATIONAL">🟢 Tốt (Hoạt động bình thường)</option>
+                                        <option value="MAINTENANCE">🟡 Đang bảo dưỡng / Sửa chữa</option>
+                                        <option value="DEFECTIVE">🔴 Hỏng hóc / Chờ thay thế</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block font-semibold text-slate-300 mb-1">Ghi chú kỹ thuật / Lịch bảo hành</label>
+                                <textarea
+                                    rows={2}
+                                    value={formEqNotes}
+                                    onChange={(e) => setFormEqNotes(e.target.value)}
+                                    placeholder="Ví dụ: Đã thay bóng đèn tháng 10/2026, còn bảo hành đến 2028..."
+                                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-white"
+                                />
+                            </div>
+
+                            <div className="pt-3 border-t border-slate-800 flex justify-end space-x-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsEquipmentModalOpen(false)}
+                                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+                                >
+                                    Hủy
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold shadow-lg shadow-emerald-500/20"
+                                >
+                                    Lưu Thiết Bị
                                 </button>
                             </div>
                         </form>
@@ -518,5 +930,4 @@ function RoomManagementPage() {
     );
 }
 
-export default withAuth(RoomManagementPage);
-
+export default withAuth(RoomManagementPage, ['ADMIN', 'STAFF']);
