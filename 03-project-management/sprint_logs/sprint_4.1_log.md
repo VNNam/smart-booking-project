@@ -67,3 +67,4 @@ Hoàn thiện toàn bộ các phân hệ còn thiếu để đưa hệ thống v
 
 ## 4. Trạng thái bàn giao UAT
 Hệ thống đã đạt 100% tiêu chí nghiệm thu của Sprint 4.1 và sẵn sàng cho đợt kiểm thử chấp nhận người dùng (UAT).
+

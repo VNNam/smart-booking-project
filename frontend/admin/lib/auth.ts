@@ -55,3 +55,4 @@ export const AuthManager = {
         localStorage.removeItem(USER_KEY);
     }
 };
+

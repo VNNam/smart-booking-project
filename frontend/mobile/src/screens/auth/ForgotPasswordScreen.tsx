@@ -176,3 +176,4 @@ const styles = StyleSheet.create({
         color: '#020617',
     },
 });
+

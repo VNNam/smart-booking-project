@@ -83,3 +83,4 @@ export interface AddEquipmentDto {
     isMandatory?: boolean;
     notes?: string;
 }
+

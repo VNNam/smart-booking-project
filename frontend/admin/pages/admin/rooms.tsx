@@ -525,3 +525,4 @@ function RoomManagementPage() {
 }
 
 export default withAuth(RoomManagementPage);
+

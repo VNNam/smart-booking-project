@@ -266,3 +266,4 @@ function AccountingDashboardPage() {
 }
 
 export default withAuth(AccountingDashboardPage);
+
