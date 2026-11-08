@@ -82,3 +82,29 @@
   4. Cập nhật `frontend/admin/pages/cash-booking.tsx`: Kết nối `roomStore`, tự động đồng bộ thời gian thực khi chuyển đổi trạng thái ở trang quản lý phòng, hiển thị thẻ cảnh báo "🟡 ĐANG BẢO TRÌ" khóa đặt chỗ, và bổ sung bộ lọc "Chỉ hiển thị phòng đang hoạt động".
   5. Kiểm tra biên dịch: `npm run build` thành công 13/13 routes (11 static + 2 dynamic API routes) với 0 lỗi.
 - Status: RESOLVED_AND_VERIFIED.
+
+[2026-11-08T15:24:00Z] [@PM_Agent & @Frontend_Agent] [FEATURE_ENHANCEMENT_PRICING_EQUIPMENT_TIMEZONE]
+- Issue 1: Lệch múi giờ hiển thị slot tại Thu tiền mặt (cash-booking.tsx). Chuỗi giờ có gắn hậu tố UTC "Z" dẫn đến khi duyệt ở múi giờ Việt Nam (UTC+7) bị cộng dồn +7 tiếng, đẩy giờ sang 04:00 AM ngày hôm sau.
+  * Fix: Chuẩn hóa timeFrames thành định dạng giờ địa phương (08:00 -> 21:00) không gắn Z, tối ưu hàm formatTime trích xuất trực tiếp HH:mm không bị dịch ngày.
+- Issue 2: Tab "Bảng giá động & Khung giờ" chưa có chức năng Thêm khung giờ & giá, chỉnh sửa khung giờ và giá hiện có.
+  * Fix: Bổ sung Modal "Thêm / Chỉnh sửa Quy tắc giá", cho phép cấu hình Tên quy tắc, Phạm vi phòng, Khung giờ bắt đầu - kết thúc, Ngày áp dụng, Hệ số nhân giá (+10% đến +50%). Thêm nút Bật/Tắt và Xóa quy tắc, lưu bền vững vào LocalStorage qua `roomStore`.
+- Issue 3: Tab "Tài sản & Trang thiết bị" chưa có chức năng Thêm, cập nhật thiết bị.
+  * Fix: Bổ sung Modal "Thêm / Chỉnh sửa Thiết Bị", quản lý Mã Serial, Phòng lắp đặt, Số lượng, Tình trạng (Dropdown nhanh: Tốt / Bảo dưỡng / Hỏng), Ghi chú kỹ thuật, nút Xóa và đồng bộ thời gian thực qua `roomStore`.
+- Verification: `npm run build` thành công 13/13 routes với 0 lỗi. Commit `309e3cc`.
+- Status: RESOLVED_AND_VERIFIED.
+
+[2026-11-08T15:40:00Z] [@PM_Agent & @Frontend_Agent] [FEATURE_PROFILE_EMAIL_USER_LOCK_ACCOUNTING_VERIFY]
+- 1. Profile Email Management:
+  * Nâng cấp `frontend/admin/pages/profile.tsx`: Cho phép xem và cập nhật Email liên hệ, Họ tên, Số điện thoại.
+  * Tích hợp `AuthManager.setUser(...)` lưu trữ bền vững vào LocalStorage, đồng bộ tức thì lên Header và toàn bộ phiên làm việc.
+- 2. Staff & User Access Control (Khóa / Mở Khóa Tài Khoản):
+  * Xây dựng `frontend/admin/lib/userStore.ts`: Quản lý danh sách tài khoản (Admin, Lễ tân, Kế toán, Thành viên), hỗ trợ `toggleLockUser`, `addUser`, `updateUser`, `resetPassword`, lưu trữ LocalStorage (`smart_booking_user_accounts_v1`).
+  * Xây dựng trang quản trị `/admin/users` (`frontend/admin/pages/admin/users.tsx`): Kiểm soát quyền đăng nhập của lễ tân/kế toán, nút Khóa/Mở khóa tức thì, cấp mới tài khoản, reset mật khẩu về mặc định, bảo vệ an toàn cho Super Admin.
+  * Cập nhật `frontend/admin/components/AdminHeader.tsx`: Thêm điều hướng "👥 Quản lý Tài khoản" dành riêng cho vai trò `ADMIN`.
+- 3. Accountant Reconciliation Confirmation & Notes:
+  * Nâng cấp `frontend/admin/pages/admin/accounting.tsx`: Mỗi dòng giao dịch MoMo/Ngân hàng có nút xác nhận "✓ Khớp" và "⚠ Báo lệch", ô textbox nhập ghi chú đối soát trực tiếp, ghi nhận tên Kế toán viên và thời gian duyệt.
+  * Bổ sung nút "💾 Lưu Biên Bản Đối Soát" (lưu vào LocalStorage) và "📥 Xuất Báo Cáo (.csv)".
+- 4. Master CalendarGrid Synchronization:
+  * Nâng cấp `frontend/admin/components/CalendarGrid.tsx`: Kết nối `roomStore`, hiển thị huy hiệu `[BẢO TRÌ]` và khóa các slot tương ứng theo thời gian thực trên trang Dashboard chính.
+- Verification: `npm run build` thành công 14/14 routes với 0 lỗi. Commit `eee37d9`.
+- Status: COMPLETED_AND_VERIFIED.
