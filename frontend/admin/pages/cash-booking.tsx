@@ -10,11 +10,22 @@
  * ==============================================================================
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import AdminHeader from '../components/AdminHeader';
 import { withAuth } from '../components/withAuth';
 import { roomStore, RoomItem } from '../lib/roomStore';
+import { AuthManager } from '../lib/auth';
+import { getVnNow, addDaysToDateStr, dayOfWeekOfDateStr, hhmmToMinutes } from '../lib/vnTime';
+
+/**
+ * [BA-FIX CB-01] Chế độ giả lập API chỉ bật khi khai báo tường minh NEXT_PUBLIC_MOCK_API=true.
+ * Production: lỗi mạng/backend KHÔNG BAO GIỜ được hiển thị như thu tiền thành công.
+ */
+const MOCK_API_ENABLED = process.env.NEXT_PUBLIC_MOCK_API === 'true';
+
+/** [BA-FIX CB-02/CB-11] Chu kỳ làm mới đồng hồ nghiệp vụ (ms) để tự loại slot vừa trôi qua. */
+const CLOCK_TICK_MS = 30 * 1000;
 
 // ==============================================================================
 // 1. KIỂU DỮ LIỆU & INTERFACES
@@ -84,42 +95,46 @@ function formatTime(isoOrLocalString: string): string {
 // 3. MAIN COMPONENT: CashBookingPage
 // ==============================================================================
 function CashBookingPage() {
-    const todayStr = getLocalDateString(new Date());
+    // [BA-FIX CB-02/CB-08/CB-11] Đồng hồ nghiệp vụ theo giờ VN, tự tick định kỳ:
+    // - "Hôm nay" và phút hiện tại luôn được tính lại → slot vừa trôi qua tự biến mất
+    // - Qua 00:00 VN, ngày hôm qua tự trở thành ngày quá khứ
+    const [nowTick, setNowTick] = useState<number>(() => Date.now());
+    useEffect(() => {
+        const timer = setInterval(() => setNowTick(Date.now()), CLOCK_TICK_MS);
+        return () => clearInterval(timer);
+    }, []);
+    const vnNow = getVnNow(new Date(nowTick));
+    const todayStr = vnNow.dateStr;
 
     // --- State quản lý ngày & chi nhánh ---
     const [selectedBranch, setSelectedBranch] = useState('b0000000-0000-0000-0000-000000000001');
-    const [selectedDate, setSelectedDate] = useState(() => todayStr);
+    const [selectedDate, setSelectedDate] = useState(() => getVnNow().dateStr);
 
     // Xác định ngữ cảnh ngày tra cứu theo Business Rules (QIC)
     const isPastDate = selectedDate < todayStr;
     const isToday = selectedDate === todayStr;
     const isFutureDate = selectedDate > todayStr;
 
-    // Phát hiện cuối tuần (Thứ Bảy = 6, Chủ Nhật = 0)
-    const [yearNum, monthNum, dayNum] = selectedDate.split('-').map(Number);
-    const selectedDateObj = new Date(yearNum, (monthNum || 1) - 1, dayNum || 1);
-    const dayOfWeek = selectedDateObj.getDay();
+    // Phát hiện cuối tuần (Thứ Bảy = 6, Chủ Nhật = 0) theo ngày lịch, không phụ thuộc timezone máy
+    const dayOfWeek = dayOfWeekOfDateStr(selectedDate);
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
     const dayOfWeekLabel = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'][dayOfWeek] || '';
 
     // Các mốc ngày nhanh tiện ích
-    const tomorrowStr = (() => {
-        const tmrw = new Date();
-        tmrw.setDate(tmrw.getDate() + 1);
-        return getLocalDateString(tmrw);
-    })();
+    const tomorrowStr = addDaysToDateStr(todayStr, 1);
 
     const nextSaturdayStr = (() => {
-        const nextSat = new Date();
-        const daysUntilSat = (6 - nextSat.getDay() + 7) % 7 || 7;
-        nextSat.setDate(nextSat.getDate() + daysUntilSat);
-        return getLocalDateString(nextSat);
+        const daysUntilSat = (6 - vnNow.dayOfWeek + 7) % 7 || 7;
+        return addDaysToDateStr(todayStr, daysUntilSat);
     })();
 
     // --- State dữ liệu phòng & bộ lọc ---
     const [rooms, setRooms] = useState<Room[]>([]);
     const [filterActiveOnly, setFilterActiveOnly] = useState<boolean>(true);
     const [slots, setSlots] = useState<Slot[]>([]);
+    // [BA-FIX CB-06] Lưu các slot đã chốt trong phiên để không bị "hồi sinh" AVAILABLE khi đổi ngày qua lại.
+    // (Giải pháp tạm cho dữ liệu giả lập — đích: GET /slots/available từ CSDL, backlog #7.)
+    const [bookedSlotIds, setBookedSlotIds] = useState<Set<string>>(() => new Set());
 
     // Tải và lắng nghe cập nhật phòng theo thời gian thực từ persistent store
     useEffect(() => {
@@ -138,8 +153,8 @@ function CashBookingPage() {
     // Rule 2: Nếu là Ngày Trong Tương Lai (Future Date) -> Hiển thị toàn bộ các khung giờ trống của cả ngày (08:00 -> 21:00).
     useEffect(() => {
         const generatedSlots: Slot[] = [];
-        const now = new Date();
-        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        // [BA-FIX CB-02/CB-08] Phút hiện tại theo giờ VN, cập nhật theo nowTick
+        const currentMinutes = vnNow.minutesOfDay;
 
         // Khung giờ hoạt động tiêu chuẩn (08:00 -> 21:00)
         const standardTimeFrames = [
@@ -167,14 +182,20 @@ function CashBookingPage() {
         });
 
         rooms.forEach((r, rIdx) => {
-            applicableTimeFrames.forEach((tf, tfIdx) => {
+            applicableTimeFrames.forEach((tf) => {
                 const isUnderMaintenance = !r.isActive;
+                // [BA-FIX CB-05] ID ổn định theo (phòng, ngày, giờ bắt đầu) — không phụ thuộc chỉ số sau khi lọc,
+                // tránh việc slot "Đã đặt" giả lập bị trượt sang khung giờ khác khi Rule 1 loại bớt slot.
+                const slotId = `slot-${r.id}-${selectedDate}-${tf.start.slice(0, 5)}`;
+                const isDemoBooked = rIdx === 0 && tf.start === '10:00:00';
                 generatedSlots.push({
-                    id: `slot-${r.id}-${tfIdx}`,
+                    id: slotId,
                     roomId: r.id,
                     startTime: `${selectedDate}T${tf.start}`,
                     endTime: `${selectedDate}T${tf.end}`,
-                    status: isUnderMaintenance ? 'MAINTENANCE' : (rIdx === 0 && tfIdx === 1 ? 'BOOKED' : 'AVAILABLE')
+                    status: isUnderMaintenance
+                        ? 'MAINTENANCE'
+                        : (isDemoBooked || bookedSlotIds.has(slotId) ? 'BOOKED' : 'AVAILABLE')
                 });
             });
         });
@@ -189,18 +210,33 @@ function CashBookingPage() {
                 setSelectedSlot(null);
             }
         }
-    }, [rooms, selectedDate, isToday, isPastDate]);
+
+        // [BA-FIX CB-02] Slot đang chọn vừa trôi qua (hoặc không còn khả dụng) → tự bỏ chọn và cảnh báo
+        if (selectedSlot) {
+            const stillValid = generatedSlots.find(s => s.id === selectedSlot.id && s.status === 'AVAILABLE');
+            if (!stillValid) {
+                setSelectedSlot(null);
+                setErrorMessage('Khung giờ bạn chọn vừa bắt đầu hoặc không còn khả dụng. Vui lòng chọn khung giờ khác.');
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rooms, selectedDate, isToday, isPastDate, vnNow.minutesOfDay, bookedSlotIds]);
 
     // Khi người dùng đổi ngày: tự động reset slot đã chọn để tránh xung đột dữ liệu
     const handleDateChange = (newDate: string) => {
         setSelectedDate(newDate);
         setSelectedSlot(null);
         setErrorMessage(null);
+        idempotencyKeyRef.current = null;
     };
 
     // --- State lựa chọn đặt phòng ---
     const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
     const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
+
+    // [BA-FIX CB-07] Idempotency-Key gắn với MỘT lựa chọn slot: giữ nguyên khi bấm lại sau timeout/lỗi mạng,
+    // chỉ sinh mới khi đổi slot/đổi ngày hoặc sau khi giao dịch thành công.
+    const idempotencyKeyRef = useRef<string | null>(null);
 
     // --- State form thông tin khách hàng tại quầy ---
     const [customerName, setCustomerName] = useState('');
@@ -238,9 +274,32 @@ function CashBookingPage() {
 
     const handleSelectSlot = (room: Room, slot: Slot) => {
         if (slot.status !== 'AVAILABLE') return;
+        if (selectedSlot?.id !== slot.id) {
+            // Đổi lựa chọn slot → phiên giao dịch mới → Idempotency-Key mới
+            idempotencyKeyRef.current = null;
+        }
         setSelectedRoom(room);
         setSelectedSlot(slot);
         setErrorMessage(null);
+    };
+
+    /** [BA-FIX CB-03] Kiểm tra lại tại thời điểm bấm xác nhận: slot hôm nay phải chưa bắt đầu (giờ VN hiện tại). */
+    const isSlotStillBookable = (slot: Slot): boolean => {
+        const liveNow = getVnNow();
+        const slotDate = slot.startTime.slice(0, 10);
+        if (slotDate < liveNow.dateStr) return false;
+        if (slotDate > liveNow.dateStr) return true;
+        const startMinutes = hhmmToMinutes(slot.startTime.split('T')[1] || '00:00');
+        return startMinutes > liveNow.minutesOfDay;
+    };
+
+    /** Chốt slot thành BOOKED trên giao diện (đồng bộ ngay sau khi giao dịch hoàn tất). */
+    const markSlotBooked = (slotId: string) => {
+        // Bỏ chọn trước để effect không coi slot vừa chốt là "không còn khả dụng"
+        setSelectedSlot(null);
+        setSlots(prev => prev.map(s => (s.id === slotId ? { ...s, status: 'BOOKED' } : s)));
+        setBookedSlotIds(prev => new Set(prev).add(slotId));
+        idempotencyKeyRef.current = null;
     };
 
     // Xử lý gửi API Đặt phòng thu tiền mặt
@@ -258,10 +317,21 @@ function CashBookingPage() {
             return;
         }
 
+        // [BA-FIX CB-03] Không cho thu tiền mặt cho khung giờ đã bắt đầu/đã qua trong ngày hiện tại
+        if (!isSlotStillBookable(selectedSlot)) {
+            setSelectedSlot(null);
+            setNowTick(Date.now());
+            setErrorMessage('Khung giờ đã bắt đầu hoặc đã qua. Không thể thu tiền mặt cho khung giờ này — vui lòng chọn khung giờ khác.');
+            return;
+        }
+
         setIsSubmitting(true);
 
-        // Sinh Idempotency-Key duy nhất cho mỗi lần ấn xác nhận
-        const idempotencyKey = generateUUIDv4();
+        // [BA-FIX CB-07] Tái sử dụng Idempotency-Key cho cùng lựa chọn slot (retry an toàn sau timeout)
+        if (!idempotencyKeyRef.current) {
+            idempotencyKeyRef.current = generateUUIDv4();
+        }
+        const idempotencyKey = idempotencyKeyRef.current;
 
         const payload = {
             roomId: selectedRoom.id,
@@ -272,15 +342,29 @@ function CashBookingPage() {
             notes: notes.trim()
         };
 
+        const bookedRoom = selectedRoom;
+        const bookedSlot = selectedSlot;
+        const buildMockReceipt = (): CashBookingSuccess => ({
+            bookingCode: `MOCK-WALK-${Date.now().toString().slice(-5)}`,
+            roomName: bookedRoom.name,
+            customerName: customerName.trim(),
+            customerPhone: customerPhone.trim(),
+            startTime: bookedSlot.startTime,
+            endTime: bookedSlot.endTime,
+            totalAmount: calculateTotalAmount(),
+            cashBookEntryId: `MOCK-CB-${Date.now().toString().slice(-6)}`,
+            createdAt: new Date().toISOString()
+        });
+
         try {
-            // Giả lập hoặc gửi request thực tế đến backend API
+            // [BA-FIX CB-10] Dùng JWT của phiên đăng nhập thật thay vì token hardcode
+            const token = AuthManager.getToken();
             const response = await fetch('/api/v1/bookings', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Idempotency-Key': idempotencyKey,
-                    // Giả lập token Authorization của Lễ tân (STAFF)
-                    'Authorization': 'Bearer mock-staff-jwt-token'
+                    ...(token ? { Authorization: `Bearer ${token}` } : {})
                 },
                 body: JSON.stringify(payload)
             });
@@ -288,44 +372,52 @@ function CashBookingPage() {
             if (response.ok) {
                 const data = await response.json();
                 setSuccessReceipt({
-                    bookingCode: data.bookingCode || `BKG-WALK-${Date.now().toString().slice(-5)}`,
-                    roomName: selectedRoom.name,
+                    bookingCode: data.bookingCode,
+                    roomName: bookedRoom.name,
                     customerName: customerName.trim(),
                     customerPhone: customerPhone.trim(),
-                    startTime: selectedSlot.startTime,
-                    endTime: selectedSlot.endTime,
-                    totalAmount: calculateTotalAmount(),
-                    cashBookEntryId: data.cashBookEntryId || `CB-${Date.now().toString().slice(-6)}`,
-                    createdAt: new Date().toISOString()
+                    startTime: bookedSlot.startTime,
+                    endTime: bookedSlot.endTime,
+                    // [BA-FIX CB-09] Biên nhận dùng số tiền do server tính (khớp 100% với sổ quỹ CASH_BOOK_LOGS)
+                    totalAmount: typeof data.totalAmount === 'number' ? data.totalAmount : Number(data.totalAmount),
+                    cashBookEntryId: data.cashBookEntryId,
+                    createdAt: data.createdAt || new Date().toISOString()
                 });
 
                 // Cập nhật trạng thái slot trên giao diện sang BOOKED
-                setSlots(prev => prev.map(s => s.id === selectedSlot.id ? { ...s, status: 'BOOKED' } : s));
+                markSlotBooked(bookedSlot.id);
+            } else if (MOCK_API_ENABLED && response.status === 404) {
+                // Chỉ dành cho môi trường demo không có backend (NEXT_PUBLIC_MOCK_API=true)
+                setSuccessReceipt(buildMockReceipt());
+                markSlotBooked(bookedSlot.id);
             } else {
                 const errData = await response.json().catch(() => ({}));
-                if (response.status === 409) {
+                if (response.status === 409 && errData.code === 'SLOT_IN_PAST') {
+                    setSelectedSlot(null);
+                    setNowTick(Date.now());
+                    setErrorMessage('Khung giờ đã bắt đầu hoặc đã qua (theo giờ hệ thống). Không thể thu tiền mặt — vui lòng chọn khung giờ khác.');
+                } else if (response.status === 409) {
                     setErrorMessage('Khung giờ này vừa có người giữ chỗ hoặc vừa được xác nhận. Vui lòng chọn khung giờ khác.');
                 } else if (response.status === 403) {
                     setErrorMessage('Từ chối truy cập: Chỉ Quản lý / Lễ tân trên Web Admin mới được tạo đơn tiền mặt.');
+                } else if (response.status === 401) {
+                    setErrorMessage('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại trước khi thu tiền.');
                 } else {
                     setErrorMessage(errData.message || 'Có lỗi xảy ra khi tạo đơn đặt phòng. Vui lòng thử lại.');
                 }
             }
         } catch (fetchErr) {
-            // Trường hợp môi trường dev chưa chạy backend server, giả lập thành công cho UI demo
-            const totalAmount = calculateTotalAmount();
-            setSuccessReceipt({
-                bookingCode: `BKG-WALK-${Date.now().toString().slice(-5)}`,
-                roomName: selectedRoom.name,
-                customerName: customerName.trim(),
-                customerPhone: customerPhone.trim(),
-                startTime: selectedSlot.startTime,
-                endTime: selectedSlot.endTime,
-                totalAmount,
-                cashBookEntryId: `CB-${Date.now().toString().slice(-6)}`,
-                createdAt: new Date().toISOString()
-            });
-            setSlots(prev => prev.map(s => s.id === selectedSlot.id ? { ...s, status: 'BOOKED' } : s));
+            if (MOCK_API_ENABLED) {
+                // Chỉ dành cho môi trường demo không có backend (NEXT_PUBLIC_MOCK_API=true)
+                setSuccessReceipt(buildMockReceipt());
+                markSlotBooked(bookedSlot.id);
+            } else {
+                // [BA-FIX CB-01] Lỗi mạng/backend: TUYỆT ĐỐI không báo thành công, không đánh dấu slot BOOKED.
+                // Giữ nguyên Idempotency-Key để bấm lại an toàn (server sẽ trả kết quả cũ nếu đơn đã được tạo).
+                setErrorMessage(
+                    'Không kết nối được máy chủ — giao dịch CHƯA được ghi nhận. KHÔNG thu tiền của khách. Vui lòng kiểm tra mạng và bấm xác nhận lại.'
+                );
+            }
         } finally {
             setIsSubmitting(false);
         }
@@ -340,6 +432,7 @@ function CashBookingPage() {
         setNotes('');
         setErrorMessage(null);
         setSuccessReceipt(null);
+        idempotencyKeyRef.current = null;
     };
 
     return (

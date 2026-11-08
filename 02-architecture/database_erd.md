@@ -29,12 +29,25 @@ erDiagram
     MEMBER_WALLETS ||--o{ WALLET_TRANSACTIONS : "records"
     BOOKINGS ||--o{ WALLET_TRANSACTIONS : "settles_via"
 
+    USERS ||--o{ MEMBER_QUOTAS : "assigned_to"
+    COMPANIES ||--o{ MEMBER_QUOTAS : "provisions"
+    MEMBER_QUOTAS ||--o{ QUOTA_LEDGER : "tracks_balance"
+    BOOKINGS ||--o{ QUOTA_LEDGER : "settles_quota"
+
     COMPANIES {
         uuid id PK
         varchar name
         varchar tax_code UK
         decimal credit_limit "Hạn mức nợ tối đa"
         decimal current_debt "Nợ lũy kế hiện tại"
+        varchar contact_name "Liên hệ chính"
+        varchar contact_email
+        varchar contact_phone
+        text billing_address
+        uuid pricing_policy_id "Chính sách giá áp dụng"
+        varchar contract_no "Số hợp đồng B2B"
+        date contract_start
+        date contract_end
         boolean is_active
         timestamp created_at
     }
@@ -45,7 +58,7 @@ erDiagram
         varchar email UK
         varchar phone UK
         varchar full_name
-        varchar role "CUSTOMER | MEMBER | STAFF | ADMIN"
+        varchar role "CUSTOMER | MEMBER | STAFF | ADMIN | ACCOUNTANT"
         decimal credit_limit "Dành cho VIP cá nhân"
         decimal current_debt "Dư nợ hiện tại"
         boolean is_active
@@ -88,7 +101,7 @@ erDiagram
         uuid slot_id FK UK
         varchar booking_code UK
         varchar booking_status "LOCKED_PENDING_ONLINE | CONFIRMED | CONFIRMED_PAID | CONFIRMED_DEBT | CANCELLED | CANCELLED_NO_REFUND | EXPIRED"
-        varchar payment_method "ONLINE_GATEWAY | PREPAID_WALLET | CASH_ON_ARRIVAL | POSTPAID_DEBT"
+        varchar payment_method "ONLINE_GATEWAY | PREPAID_WALLET | CASH_ON_ARRIVAL | POSTPAID_DEBT | CORPORATE_QUOTA"
         varchar payment_status "PENDING | PAID | REFUNDED | UNPAID"
         varchar booking_channel "MOBILE_APP | WEB_ADMIN"
         decimal total_amount
@@ -97,8 +110,41 @@ erDiagram
         uuid supervisor_otp_approved_by FK "nullable"
         text notes
         timestamp lock_expires_at "TTL 10 mins (600s)"
+        timestamp actual_check_in "Giờ nhận phòng thực tế"
+        timestamp actual_check_out "Giờ trả phòng thực tế"
+        jsonb quota_consumed "Hạn mức tiêu hao thực tế"
         timestamp created_at
         timestamp updated_at
+    }
+
+    MEMBER_QUOTAS {
+        uuid id PK
+        uuid user_id FK
+        uuid company_id FK
+        varchar quota_type "CREDIT | BOOKINGS | HOURS"
+        decimal quota_limit "Hạn mức tối đa được cấp"
+        decimal quota_used "Hạn mức đã sử dụng"
+        varchar reset_cycle "WEEKLY | MONTHLY | MANUAL"
+        date period_start "Ngày bắt đầu chu kỳ"
+        date period_end "Ngày kết thúc chu kỳ"
+        boolean is_active
+        timestamp updated_at
+    }
+
+    QUOTA_LEDGER {
+        uuid id PK
+        uuid member_quota_id FK
+        uuid user_id FK
+        uuid company_id FK
+        uuid booking_id FK "nullable"
+        varchar tx_type "CONSUME | RELEASE | ADJUST | RESET | OVERTIME"
+        decimal amount "Lượng quota biến động"
+        decimal used_before
+        decimal used_after
+        date period_start
+        varchar idempotency_key UK
+        text reason
+        timestamp created_at
     }
 
     MEMBER_WALLETS {

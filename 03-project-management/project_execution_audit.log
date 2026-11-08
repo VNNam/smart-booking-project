@@ -119,3 +119,40 @@
   4. Cross-check Cash Walk-in: Idempotency-Key guard, immediate state reflection, dynamic weekend surcharge calculation (+15%).
 - Verification: Next.js production build compiled 14/14 routes with 0 errors (Exit Code 0).
 - Status: COMPLETED_AND_VERIFIED.
+
+---
+[2026-11-08 16:36:00] [BA-AUDIT-007] [BA_Agent & SA_Agent]
+- Scope: Gap analysis Module 1 (B2B Quota), Module 2 (Calendar), Module 3 (Finance & Reconciliation).
+- Outputs: 01-requirements/ba_quota_booking_reconciliation_analysis.md, 02-architecture/gap_analysis_b2b_quota_finance.md, 04-testing/review_cash_booking_calendar.md
+- Findings: Module 1 & 3 only UI mock (no schema/API/backend). 4 S1 defects in cash flow (CB-01 mock success on network error, CB-04 no server past-slot guard, CB-09 weekend amount mismatch, CB-02/03 no time refresh/submit re-validation).
+- Status: ANALYSIS_COMPLETED. UAT readiness for Module 1 & 3 REVOKED pending fixes.
+- Resume file: 03-project-management/ba_analysis_progress.md
+
+---
+[2026-11-08 16:52:00] [FIX-S1-VERIFIED] [SA_Agent & Dev_Agent]
+- Component: Cash Booking & Calendar Logic & Accounting Date Range
+- Business Rules Enforced:
+  1. CB-04 / G-14: Server-side check in BookingService for slot_status = AVAILABLE and s.start_time > NOW() using DB clock.
+  2. CB-09: Single Source of Truth for pricing on server (computeBookingAmount) with VN weekend surcharge (+15%).
+  3. CB-01: Removed fake mock success receipt on network/backend fetch errors in cash-booking.tsx.
+  4. CB-02 / CB-03: Real-time clock tick (30s) + re-validation at submit time in VN timezone.
+  5. CB-07: Persistent Idempotency-Key per slot selection (safe retries).
+  6. G-16 / G-18: Accounting Date Range Filter enforced in accounting.tsx using VN timezone with from <= to constraints.
+- Verification: Backend tsc passed (Exit Code 0), 11/11 Jest tests passed, Next.js build 12/12 static routes passed (Exit Code 0).
+- Status: S1_FIXES_VERIFIED_AND_COMPLETED.
+
+---
+[2026-11-08 17:11:30] [B2B-QUOTA-FINANCE-V1.5-COMPLETE] [SA_Agent & Dev_Agent & BA_Agent]
+- Milestone: Full Implementation of Module 1 (B2B Quota), Module 2 (Calendar Hardening), and Module 3 (Multi-Source Reconciliation)
+- Components Delivered:
+  1. Schema v1.5 DDL & ERD: member_quotas, quota_ledger, companies extensions, bookings check-in/out, CORPORATE_QUOTA payment enum, ACCOUNTANT role enum.
+  2. QuotaService: Pessimistic locking (FOR UPDATE) for CREDIT/BOOKINGS/HOURS quotas, company credit pool enforcement, automatic quota release on valid cancellation, quota adjustment logging, member usage history query.
+  3. BookingService: Fully integrated CORPORATE_QUOTA payment flow and automatic quota release on cancellation.
+  4. AccountingService: Exact inclusive date range filter [from] - [to] in VN timezone, multi-source unified reconciliation report (Gateways, Bookings, Quota Ledger, Cash Book Logs), cash drawer calculation.
+  5. Frontend Admin: corporate-debts.tsx enforces Member Quota Guard for all 3 quota types; accounting.tsx date range filter applies across all tabs including Cash Drawer logs.
+  6. API Contracts: Synchronized booking_api.yaml with all new B2B and accounting endpoints.
+- Verification Results:
+  * Backend TypeScript: npx tsc --noEmit PASSED (Exit Code 0).
+  * Unit Test Suites: 16/16 tests PASSED in businessTime and quota_accounting suites.
+  * Web Admin Next.js Build: 12/12 static routes compiled successfully (Exit Code 0).
+- Status: ALL_TASKS_COMPLETED_SUCCESSFULLY.

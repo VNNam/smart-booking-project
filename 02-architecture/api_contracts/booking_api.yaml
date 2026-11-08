@@ -567,6 +567,195 @@ paths:
         '201':
           description: Đã lưu thông tin thiết bị
 
+  /companies:
+    get:
+      summary: Danh sách doanh nghiệp và tình trạng hạn mức công nợ
+      tags:
+        - B2B Corporate
+      responses:
+        '200':
+          description: Danh sách doanh nghiệp
+    post:
+      summary: Khởi tạo doanh nghiệp mới và gán hợp đồng / chính sách giá
+      tags:
+        - B2B Corporate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, taxCode, creditLimit]
+              properties:
+                name:
+                  type: string
+                  example: "Tập Đoàn Công Nghệ Global Corp"
+                taxCode:
+                  type: string
+                  example: "0312345678"
+                creditLimit:
+                  type: number
+                  example: 50000000
+                contactName:
+                  type: string
+                  example: "Nguyễn Văn Đại Diện"
+                contactEmail:
+                  type: string
+                  example: "contact@globalcorp.vn"
+                contactPhone:
+                  type: string
+                  example: "0901234567"
+                contractNo:
+                  type: string
+                  example: "HD-B2B-2026-001"
+      responses:
+        '201':
+          description: Khởi tạo doanh nghiệp thành công
+
+  /companies/{id}/members:
+    post:
+      summary: Thêm thành viên mới gắn liền với ID công ty mẹ
+      tags:
+        - B2B Corporate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fullName, email, phone]
+              properties:
+                fullName:
+                  type: string
+                  example: "Trần Văn Thành Viên"
+                email:
+                  type: string
+                  example: "member@globalcorp.vn"
+                phone:
+                  type: string
+                  example: "+84900000088"
+                role:
+                  type: string
+                  example: "MEMBER"
+      responses:
+        '201':
+          description: Đã liên kết tài khoản thành viên với công ty
+
+  /companies/{id}/members/{memberId}/quotas:
+    put:
+      summary: Cấu hình và điều chỉnh hạn mức thành viên (CREDIT / BOOKINGS / HOURS)
+      tags:
+        - B2B Corporate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quotaType, quotaLimit]
+              properties:
+                quotaType:
+                  type: string
+                  enum: [CREDIT, BOOKINGS, HOURS]
+                  example: "HOURS"
+                quotaLimit:
+                  type: number
+                  example: 30
+                resetCycle:
+                  type: string
+                  enum: [WEEKLY, MONTHLY, MANUAL]
+                  example: "MONTHLY"
+      responses:
+        '200':
+          description: Đã cập nhật hạn mức thành viên
+
+  /companies/{id}/members/{memberId}/usage-history:
+    get:
+      summary: Báo cáo chi tiết lịch sử sử dụng của thành viên
+      tags:
+        - B2B Corporate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+            example: "2026-11-01"
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+            example: "2026-11-08"
+      responses:
+        '200':
+          description: Toàn bộ lịch sử đặt phòng, giờ check-in/out thực tế và hạn mức tiêu hao
+
+  /accounting/reconciliation:
+    get:
+      summary: Bộ lọc đối soát theo khoảng thời gian [Từ ngày] - [Đến ngày] (Hợp nhất 4 nguồn)
+      tags:
+        - Finance & Reconciliation
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-11-01"
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-11-08"
+        - name: channel
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ALL, MOMO, VNPAY, WALLET, CASH, CORPORATE_QUOTA]
+            example: "ALL"
+      responses:
+        '200':
+          description: Bảng kê đối soát hợp nhất và số dư quỹ tiền mặt ca trực
+
 components:
   securitySchemes:
     bearerAuth:

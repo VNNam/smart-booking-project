@@ -17,13 +17,15 @@ import { Pool, PoolClient } from 'pg';
 import Redis from 'ioredis';
 import { v4 as uuidv4 } from 'uuid';
 import { MoMoPaymentService } from './momo';
+import { computeBookingAmount } from '../utils/businessTime';
+import { QuotaService } from './QuotaService';
 
 // ==============================================================================
 // 1. DATA TRANSFER OBJECTS (DTO) & INTERFACES
 // ==============================================================================
 
-export type PaymentMethod = 'ONLINE_GATEWAY' | 'PREPAID_WALLET' | 'CASH_ON_ARRIVAL' | 'POSTPAID_DEBT';
-export type UserRole = 'CUSTOMER' | 'MEMBER' | 'STAFF' | 'ADMIN';
+export type PaymentMethod = 'ONLINE_GATEWAY' | 'PREPAID_WALLET' | 'CASH_ON_ARRIVAL' | 'POSTPAID_DEBT' | 'CORPORATE_QUOTA';
+export type UserRole = 'CUSTOMER' | 'MEMBER' | 'STAFF' | 'ADMIN' | 'ACCOUNTANT';
 
 export interface UserContext {
     id: string;
@@ -66,7 +68,7 @@ export interface CancellationResult {
     bookingStatus: 'CANCELLED' | 'CANCELLED_NO_REFUND';
     refundAmount: number;
     penaltyFee: number;
-    refundStatus: 'REFUNDED_WALLET' | 'PENDING_GATEWAY' | 'REFUNDED_CASH' | 'NO_REFUND';
+    refundStatus: 'REFUNDED_WALLET' | 'PENDING_GATEWAY' | 'REFUNDED_CASH' | 'REFUNDED_QUOTA' | 'NO_REFUND';
     cashBookEntryId?: string | null;
     message: string;
 }
@@ -105,6 +107,16 @@ export class CreditLimitExceededError extends BusinessError {
     }
 }
 
+/**
+ * [BA-FIX CB-04 / G-14] Chặn đặt phòng & thu tiền cho khung giờ đã bắt đầu / đã qua.
+ * Áp dụng server-side cho MỌI phương thức thanh toán (không phụ thuộc client).
+ */
+export class SlotInPastError extends BusinessError {
+    constructor(message = 'Khung giờ đã bắt đầu hoặc đã qua. Không thể đặt phòng hoặc thu tiền cho khung giờ này.') {
+        super('SLOT_IN_PAST', message, 409);
+    }
+}
+
 // ==============================================================================
 // 3. CORE BOOKING SERVICE IMPLEMENTATION
 // ==============================================================================
@@ -113,13 +125,16 @@ export class BookingService {
     private readonly ONLINE_LOCK_TTL_MS = 600 * 1000;
 
     private readonly momoService: MoMoPaymentService;
+    private readonly quotaService: QuotaService;
 
     constructor(
         private readonly dbPool: Pool,
         private readonly redisClient: Redis,
-        momoService?: MoMoPaymentService
+        momoService?: MoMoPaymentService,
+        quotaService?: QuotaService
     ) {
         this.momoService = momoService || new MoMoPaymentService(this.dbPool, this.redisClient);
+        this.quotaService = quotaService || new QuotaService(this.dbPool);
     }
 
     /**
@@ -137,7 +152,8 @@ export class BookingService {
             const roomSlotQuery = `
                 SELECT 
                     r.id AS room_id, r.name AS room_name, r.hourly_rate,
-                    s.id AS slot_id, s.start_time, s.end_time, s.status AS slot_status
+                    s.id AS slot_id, s.start_time, s.end_time, s.status AS slot_status,
+                    (s.start_time <= NOW()) AS is_past
                 FROM rooms r
                 JOIN slots s ON s.room_id = r.id
                 WHERE r.id = $1 AND s.id = $2 AND r.is_active = TRUE;
@@ -148,11 +164,21 @@ export class BookingService {
                 throw new BusinessError('NOT_FOUND', 'Không tìm thấy thông tin phòng họp hoặc khung giờ hợp lệ.', 404);
             }
 
-            const { hourly_rate, start_time, end_time, slot_status } = roomSlotRes.rows[0];
+            const { hourly_rate, start_time, end_time, slot_status, is_past } = roomSlotRes.rows[0];
 
-            // Tính toán tổng tiền dựa trên thời lượng thuê (tính theo giờ)
-            const durationHours = Math.max(1, (new Date(end_time).getTime() - new Date(start_time).getTime()) / (1000 * 60 * 60));
-            const totalAmount = parseFloat(hourly_rate) * durationHours;
+            // [BA-FIX CB-04 / G-14] Guard thời gian dùng đồng hồ CSDL (NOW()) làm nguồn chuẩn duy nhất,
+            // tránh phụ thuộc đồng hồ máy lễ tân hoặc timezone của app server.
+            if (is_past === true) {
+                throw new SlotInPastError();
+            }
+            // Slot phải đang AVAILABLE (không LOCKED / BOOKED / MAINTENANCE)
+            if (slot_status && slot_status !== 'AVAILABLE') {
+                throw new SlotConflictError();
+            }
+
+            // [BA-FIX CB-09] Tổng tiền tính duy nhất phía server, bao gồm phụ thu cuối tuần theo ngày VN.
+            // Client chỉ hiển thị con số server trả về (tránh lệch giữa biên nhận và sổ quỹ).
+            const { totalAmount } = computeBookingAmount(parseFloat(hourly_rate), start_time, end_time);
 
             // Sinh mã đặt phòng duy nhất: BKG-YYYYMM-XXXXX
             const now = new Date();
@@ -480,6 +506,80 @@ export class BookingService {
                 }
             }
 
+            // ------------------------------------------------------------------
+            // LUỒNG 5: HẠN MỨC THÀNH VIÊN DOANH NGHIỆP (CORPORATE QUOTA ENGINE)
+            // ------------------------------------------------------------------
+            else if (dto.paymentMethod === 'CORPORATE_QUOTA') {
+                // Xác định company_id của thành viên
+                let targetCompanyId = user.companyId;
+                if (!targetCompanyId) {
+                    const userRes = await client.query('SELECT company_id FROM users WHERE id = $1', [user.id]);
+                    if (userRes.rows.length > 0) {
+                        targetCompanyId = userRes.rows[0].company_id;
+                    }
+                }
+
+                if (!targetCompanyId) {
+                    throw new BusinessError('NOT_CORPORATE_MEMBER', 'Tài khoản không thuộc công ty/doanh nghiệp nào để sử dụng hạn mức.', 403);
+                }
+
+                await client.query('BEGIN');
+                try {
+                    // Trừ và ghi sổ cái hạn mức (Pessimistic Lock trên member_quotas và companies)
+                    const quotaResult = await this.quotaService.checkAndConsumeQuota(client, {
+                        userId: user.id,
+                        companyId: targetCompanyId,
+                        bookingId,
+                        slotStartTime: start_time,
+                        slotEndTime: end_time,
+                        totalAmount,
+                        idempotencyKey
+                    });
+
+                    // Tạo booking CONFIRMED_DEBT với paymentMethod CORPORATE_QUOTA
+                    const insertBookingQuery = `
+                        INSERT INTO bookings (
+                            id, user_id, room_id, slot_id, booking_code,
+                            booking_status, payment_method, payment_status,
+                            booking_channel, total_amount, quota_consumed, notes
+                        ) VALUES ($1, $2, $3, $4, $5, 'CONFIRMED_DEBT', 'CORPORATE_QUOTA', 'PAID', 'MOBILE_APP', $6, $7, $8)
+                        RETURNING id, booking_code, created_at;
+                    `;
+
+                    const bookingInsert = await client.query(insertBookingQuery, [
+                        bookingId, user.id, dto.roomId, dto.slotId, bookingCode, totalAmount, JSON.stringify(quotaResult.consumed), dto.notes || null
+                    ]);
+
+                    await client.query('UPDATE slots SET status = $1 WHERE id = $2', ['BOOKED', dto.slotId]);
+
+                    // Transactional Outbox
+                    await client.query(`
+                        INSERT INTO outbox_events (aggregate_type, aggregate_id, event_type, payload, status)
+                        VALUES ('BOOKING', $1, 'BOOKING_CONFIRMED', $2, 'PENDING');
+                    `, [bookingId, JSON.stringify({ bookingCode, totalAmount, consumed: quotaResult.consumed })]);
+
+                    await client.query('COMMIT');
+
+                    return {
+                        id: bookingId,
+                        bookingCode,
+                        roomId: dto.roomId,
+                        slotId: dto.slotId,
+                        bookingStatus: 'CONFIRMED_DEBT',
+                        paymentMethod: 'CORPORATE_QUOTA',
+                        paymentStatus: 'PAID',
+                        totalAmount,
+                        createdAt: bookingInsert.rows[0].created_at
+                    };
+                } catch (err: any) {
+                    await client.query('ROLLBACK');
+                    if (err.code === '23505') {
+                        throw new SlotConflictError();
+                    }
+                    throw err;
+                }
+            }
+
             throw new BusinessError('INVALID_PAYMENT_METHOD', 'Phương thức thanh toán không được hỗ trợ.', 400);
 
         } finally {
@@ -562,7 +662,7 @@ export class BookingService {
             const refundAmount = (totalAmount * refundPercentage) / 100;
             const penaltyFee = totalAmount - refundAmount;
 
-            let refundStatus: 'REFUNDED_WALLET' | 'PENDING_GATEWAY' | 'REFUNDED_CASH' | 'NO_REFUND' = 'NO_REFUND';
+            let refundStatus: 'REFUNDED_WALLET' | 'PENDING_GATEWAY' | 'REFUNDED_CASH' | 'REFUNDED_QUOTA' | 'NO_REFUND' = 'NO_REFUND';
             let cashBookEntryId: string | null = null;
 
             // 3. Xử lý hoàn tiền theo phương thức thanh toán ban đầu
@@ -605,6 +705,14 @@ export class BookingService {
                 refundStatus = 'REFUNDED_CASH';
             } else if (booking.payment_method === 'ONLINE_GATEWAY' && refundAmount > 0) {
                 refundStatus = 'PENDING_GATEWAY';
+            } else if (booking.payment_method === 'CORPORATE_QUOTA') {
+                // Hạn mức doanh nghiệp: Hủy trước 24h hoàn 100% hạn mức; hủy muộn không hoàn quota (Policy A4/A5)
+                if (refundPercentage === 100) {
+                    await this.quotaService.releaseQuota(client, booking.id, reason || 'Hủy đơn trước 24h hoàn 100% hạn mức');
+                    refundStatus = 'REFUNDED_QUOTA';
+                } else {
+                    refundStatus = 'NO_REFUND';
+                }
             }
 
             // 4. Cập nhật trạng thái booking & hoàn trả slot về AVAILABLE

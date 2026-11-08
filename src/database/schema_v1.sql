@@ -17,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- 2. TẠO CÁC KIỂU DỮ LIỆU ĐẶC THÙ (ENUM TYPES)
 DO $$ BEGIN
-    CREATE TYPE user_role_enum AS ENUM ('CUSTOMER', 'MEMBER', 'STAFF', 'ADMIN');
+    CREATE TYPE user_role_enum AS ENUM ('CUSTOMER', 'MEMBER', 'STAFF', 'ADMIN', 'ACCOUNTANT');
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
@@ -54,7 +54,8 @@ DO $$ BEGIN
         'ONLINE_GATEWAY', 
         'PREPAID_WALLET', 
         'CASH_ON_ARRIVAL', 
-        'POSTPAID_DEBT'
+        'POSTPAID_DEBT',
+        'CORPORATE_QUOTA'
     );
 EXCEPTION
     WHEN duplicate_object THEN null;
@@ -90,17 +91,43 @@ EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
 
+DO $$ BEGIN
+    CREATE TYPE quota_type_enum AS ENUM ('CREDIT', 'BOOKINGS', 'HOURS');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE reset_cycle_enum AS ENUM ('WEEKLY', 'MONTHLY', 'MANUAL');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE quota_tx_enum AS ENUM ('CONSUME', 'RELEASE', 'ADJUST', 'RESET', 'OVERTIME');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
 -- ==============================================================================
 -- 3. ĐỊNH NGHĨA CÁC BẢNG DỮ LIỆU CHÍNH (TABLE DEFINITIONS)
 -- ==============================================================================
 
--- 3.1. Bảng Doanh Nghiệp (Companies) - Hỗ trợ Luồng Đặt Phòng Công Nợ
+-- 3.1. Bảng Doanh Nghiệp (Companies) - Hỗ trợ Luồng Đặt Phòng Công Nợ & Hạn Mức
 CREATE TABLE IF NOT EXISTS companies (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
     tax_code VARCHAR(50) UNIQUE NOT NULL,
     credit_limit DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
     current_debt DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    contact_name VARCHAR(150),
+    contact_email VARCHAR(255),
+    contact_phone VARCHAR(20),
+    billing_address TEXT,
+    pricing_policy_id UUID,
+    contract_no VARCHAR(50),
+    contract_start DATE,
+    contract_end DATE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -179,6 +206,9 @@ CREATE TABLE IF NOT EXISTS bookings (
     supervisor_otp_approved_by UUID REFERENCES users(id) ON DELETE SET NULL, -- Lưu ID Quản lý duyệt OTP (Two-Man Rule)
     notes TEXT,
     lock_expires_at TIMESTAMPTZ, -- TTL 10 phút (600s) cho luồng Online
+    actual_check_in TIMESTAMPTZ,
+    actual_check_out TIMESTAMPTZ,
+    quota_consumed JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -262,6 +292,42 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 3.13. Bảng Hạn Mức Thành Viên Doanh Nghiệp (Member Quotas - B2B Quota Engine)
+CREATE TABLE IF NOT EXISTS member_quotas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    quota_type quota_type_enum NOT NULL,
+    quota_limit DECIMAL(15, 2) NOT NULL CHECK (quota_limit >= 0.00),
+    quota_used DECIMAL(15, 2) NOT NULL DEFAULT 0.00 CHECK (quota_used >= 0.00),
+    reset_cycle reset_cycle_enum NOT NULL DEFAULT 'MONTHLY',
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_quota_not_exceeded CHECK (quota_used <= quota_limit),
+    CONSTRAINT uq_member_quota UNIQUE (user_id, quota_type)
+);
+
+-- 3.14. Bảng Sổ Cái Hạn Mức Bất Biến (Quota Ledger)
+CREATE TABLE IF NOT EXISTS quota_ledger (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    member_quota_id UUID NOT NULL REFERENCES member_quotas(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    booking_id UUID REFERENCES bookings(id) ON DELETE SET NULL,
+    tx_type quota_tx_enum NOT NULL,
+    amount DECIMAL(15, 2) NOT NULL,
+    used_before DECIMAL(15, 2) NOT NULL,
+    used_after DECIMAL(15, 2) NOT NULL,
+    period_start DATE NOT NULL,
+    reason TEXT,
+    performed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    idempotency_key VARCHAR(100) UNIQUE NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ==============================================================================
 -- 4. KHỞI TẠO CÁC CHỈ MỤC HIỆU NĂNG & RÀNG BUỘC ĐỘC QUYỀN (INDEXES)
 -- ==============================================================================
@@ -298,6 +364,27 @@ ON bookings (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_bookings_code 
 ON bookings (booking_code);
 
+-- 4.7. Chỉ mục Sổ cái hạn mức doanh nghiệp
+CREATE INDEX IF NOT EXISTS idx_quota_ledger_user_time 
+ON quota_ledger (user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_quota_ledger_company_time 
+ON quota_ledger (company_id, created_at DESC);
+
+-- 4.8. Chỉ mục tra cứu hạn mức khả dụng của thành viên
+CREATE INDEX IF NOT EXISTS idx_member_quotas_lookup 
+ON member_quotas (user_id, is_active);
+
+-- 4.9. Chỉ mục lọc giao dịch & đối soát kế toán theo thời gian phát sinh (Date Range)
+CREATE INDEX IF NOT EXISTS idx_bookings_created_at 
+ON bookings (created_at);
+
+CREATE INDEX IF NOT EXISTS idx_payments_created_at 
+ON payments (created_at);
+
+CREATE INDEX IF NOT EXISTS idx_cash_book_created_at 
+ON cash_book_logs (created_at);
+
 -- ==============================================================================
 -- 5. TRIGGER TỰ ĐỘNG CẬP NHẬT THỜI GIAN (UPDATED_AT TRIGGERS)
 -- ==============================================================================
@@ -327,6 +414,11 @@ FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 DROP TRIGGER IF EXISTS trg_member_wallets_updated_at ON member_wallets;
 CREATE TRIGGER trg_member_wallets_updated_at
 BEFORE UPDATE ON member_wallets
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_member_quotas_updated_at ON member_quotas;
+CREATE TRIGGER trg_member_quotas_updated_at
+BEFORE UPDATE ON member_quotas
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ==============================================================================

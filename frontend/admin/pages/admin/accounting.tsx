@@ -3,6 +3,7 @@ import Head from 'next/head';
 import AdminHeader from '../../components/AdminHeader';
 import { withAuth } from '../../components/withAuth';
 import { AuthManager } from '../../lib/auth';
+import { getVnNow, addDaysToDateStr, startOfMonthStr } from '../../lib/vnTime';
 
 function formatVND(amount: number): string {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
@@ -25,6 +26,7 @@ interface ReconciliationItem {
 
 interface CashDrawerLog {
     id: string;
+    date: string;
     time: string;
     type: 'IN' | 'OUT';
     amount: number;
@@ -113,8 +115,9 @@ function AccountingDashboardPage() {
     const [reconciliations, setReconciliations] = useState<ReconciliationItem[]>(DEFAULT_RECONCILIATIONS);
 
     // Bộ lọc đối soát theo Khoảng thời gian (Date Range Filter via Calendar) & Kênh
-    const [startDate, setStartDate] = useState<string>('2026-11-01');
-    const [endDate, setEndDate] = useState<string>('2026-11-08');
+    // [BA-FIX G-16] Mặc định: từ đầu tháng hiện tại đến hôm nay (giờ VN), không hardcode ngày cố định
+    const [startDate, setStartDate] = useState<string>(() => startOfMonthStr(getVnNow().dateStr));
+    const [endDate, setEndDate] = useState<string>(() => getVnNow().dateStr);
     const [filterChannel, setFilterChannel] = useState<string>('ALL');
     const [filterStatus, setFilterStatus] = useState<string>('ALL');
 
@@ -143,13 +146,18 @@ function AccountingDashboardPage() {
 
     // Dữ liệu quỹ tiền mặt ca trực
     const [cashLogs] = useState<CashDrawerLog[]>([
-        { id: 'c-01', time: '08:00', type: 'IN', amount: 2000000, staffName: 'Nguyễn Văn Quản Lý', notes: 'Tiền mặt đầu ca bàn giao' },
-        { id: 'c-02', time: '09:20', type: 'IN', amount: 700000, staffName: 'Lễ Tân Ca Trực', notes: 'Thu tiền mặt đơn BKG-202610-104' },
-        { id: 'c-03', time: '11:10', type: 'OUT', amount: 280000, staffName: 'Lễ Tân Ca Trực', notes: 'Hoàn tiền mặt 80% hủy đơn BKG-202610-099 (OTP duyệt)' }
+        { id: 'c-01', date: '2026-11-08', time: '08:00', type: 'IN', amount: 2000000, staffName: 'Nguyễn Văn Quản Lý', notes: 'Tiền mặt đầu ca bàn giao' },
+        { id: 'c-02', date: '2026-11-08', time: '09:20', type: 'IN', amount: 700000, staffName: 'Lễ Tân Ca Trực', notes: 'Thu tiền mặt đơn BKG-202610-104' },
+        { id: 'c-03', date: '2026-11-08', time: '11:10', type: 'OUT', amount: 280000, staffName: 'Lễ Tân Ca Trực', notes: 'Hoàn tiền mặt 80% hủy đơn BKG-202610-099 (OTP duyệt)' }
     ]);
 
-    const totalCashIn = cashLogs.filter(c => c.type === 'IN').reduce((acc, c) => acc + c.amount, 0);
-    const totalCashOut = cashLogs.filter(c => c.type === 'OUT').reduce((acc, c) => acc + c.amount, 0);
+    // [BA-FIX G-19] Áp dụng bộ lọc khoảng thời gian [Từ ngày] - [Đến ngày] cho cả Sổ quỹ tiền mặt
+    const filteredCashLogs = cashLogs.filter((c) => {
+        return (!startDate || c.date >= startDate) && (!endDate || c.date <= endDate);
+    });
+
+    const totalCashIn = filteredCashLogs.filter(c => c.type === 'IN').reduce((acc, c) => acc + c.amount, 0);
+    const totalCashOut = filteredCashLogs.filter(c => c.type === 'OUT').reduce((acc, c) => acc + c.amount, 0);
     const netCashInDrawer = totalCashIn - totalCashOut;
 
     // Đánh dấu giao dịch ĐÃ KHỚP
@@ -311,7 +319,7 @@ function AccountingDashboardPage() {
                                 : 'text-slate-400 hover:text-slate-200'
                         }`}
                     >
-                        💵 Sổ Quỹ Ca Trực & Bàn Giao ({cashLogs.length})
+                        💵 Sổ Quỹ Ca Trực & Bàn Giao ({filteredCashLogs.length})
                     </button>
                     <button
                         onClick={() => setActiveTab('REVENUE')}
@@ -368,7 +376,13 @@ function AccountingDashboardPage() {
                                         <input
                                             type="date"
                                             value={startDate}
-                                            onChange={(e) => setStartDate(e.target.value)}
+                                            max={endDate || undefined}
+                                            onChange={(e) => {
+                                                // [BA-FIX G-16] Bảo đảm from <= to: nếu chọn Từ ngày > Đến ngày thì kéo Đến ngày theo
+                                                const v = e.target.value;
+                                                setStartDate(v);
+                                                if (v && endDate && v > endDate) setEndDate(v);
+                                            }}
                                             className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
                                         />
                                     </div>
@@ -377,16 +391,21 @@ function AccountingDashboardPage() {
                                         <input
                                             type="date"
                                             value={endDate}
-                                            onChange={(e) => setEndDate(e.target.value)}
+                                            min={startDate || undefined}
+                                            onChange={(e) => {
+                                                const v = e.target.value;
+                                                setEndDate(v);
+                                                if (v && startDate && v < startDate) setStartDate(v);
+                                            }}
                                             className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
                                         />
                                     </div>
-                                    {/* Nút lọc nhanh */}
+                                    {/* Nút lọc nhanh — [BA-FIX G-18] tính theo ngày VN, không dùng toISOString() (ngày UTC) */}
                                     <div className="flex items-center space-x-1">
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                const today = new Date().toISOString().split('T')[0];
+                                                const today = getVnNow().dateStr;
                                                 setStartDate(today);
                                                 setEndDate(today);
                                             }}
@@ -397,10 +416,10 @@ function AccountingDashboardPage() {
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                const d = new Date();
-                                                d.setDate(d.getDate() - 7);
-                                                setStartDate(d.toISOString().split('T')[0]);
-                                                setEndDate(new Date().toISOString().split('T')[0]);
+                                                // 7 ngày tính cả hôm nay: [today - 6, today]
+                                                const today = getVnNow().dateStr;
+                                                setStartDate(addDaysToDateStr(today, -6));
+                                                setEndDate(today);
                                             }}
                                             className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 font-medium"
                                         >
@@ -409,9 +428,9 @@ function AccountingDashboardPage() {
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                const d = new Date();
-                                                setStartDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`);
-                                                setEndDate(new Date().toISOString().split('T')[0]);
+                                                const today = getVnNow().dateStr;
+                                                setStartDate(startOfMonthStr(today));
+                                                setEndDate(today);
                                             }}
                                             className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 font-medium"
                                         >
@@ -595,25 +614,33 @@ function AccountingDashboardPage() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/60">
-                                    {cashLogs.map(log => (
-                                        <tr key={log.id} className="hover:bg-slate-800/30">
-                                            <td className="py-3.5 font-mono text-slate-400">{log.time}</td>
-                                            <td className="py-3.5">
-                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                                                    log.type === 'IN'
-                                                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                                                        : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
-                                                }`}>
-                                                    {log.type === 'IN' ? '↓ THU TIỀN VÀO' : '↑ CHI HOÀN TRẢ'}
-                                                </span>
+                                    {filteredCashLogs.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={5} className="py-8 text-center text-slate-500">
+                                                Không có giao dịch quỹ tiền mặt nào trong khoảng thời gian {startDate} đến {endDate}.
                                             </td>
-                                            <td className={`py-3.5 font-bold ${log.type === 'IN' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                                {log.type === 'IN' ? '+' : '-'}{formatVND(log.amount)}
-                                            </td>
-                                            <td className="py-3.5 text-slate-300 font-medium">{log.staffName}</td>
-                                            <td className="py-3.5 text-slate-400 italic">{log.notes}</td>
                                         </tr>
-                                    )))}
+                                    ) : (
+                                        filteredCashLogs.map(log => (
+                                            <tr key={log.id} className="hover:bg-slate-800/30">
+                                                <td className="py-3.5 font-mono text-slate-400">{log.date} {log.time}</td>
+                                                <td className="py-3.5">
+                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                                        log.type === 'IN'
+                                                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                                            : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                                                    }`}>
+                                                        {log.type === 'IN' ? '↓ THU TIỀN VÀO' : '↑ CHI HOÀN TRẢ'}
+                                                    </span>
+                                                </td>
+                                                <td className={`py-3.5 font-bold ${log.type === 'IN' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                    {log.type === 'IN' ? '+' : '-'}{formatVND(log.amount)}
+                                                </td>
+                                                <td className="py-3.5 text-slate-300 font-medium">{log.staffName}</td>
+                                                <td className="py-3.5 text-slate-400 italic">{log.notes}</td>
+                                            </tr>
+                                        ))
+                                    )}
                                 </tbody>
                             </table>
                         </div>

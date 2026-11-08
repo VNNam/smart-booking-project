@@ -320,6 +320,7 @@ function CorporateDebtsPage() {
         if (!selectedCompany) return;
 
         // Nếu có chọn thành viên, kiểm tra thêm hạn mức thành viên (Member Quota Guard)
+        const durationHours = 2; // Khung giờ mẫu 14:00 - 16:00
         if (selectedMember) {
             if (selectedMember.status === 'SUSPENDED') {
                 setBookingError(
@@ -332,6 +333,18 @@ function CorporateDebtsPage() {
                     `LỖI MEMBER_CREDIT_EXCEEDED (HTTP 422): Hạn mức thành viên còn lại (${formatVND(
                         selectedMember.quotaLimit - selectedMember.quotaUsed
                     )}) không đủ cho đơn ${formatVND(bookingAmount)}. Cần chuyển sang thanh toán trả trước hoặc tiền mặt.`
+                );
+                return;
+            }
+            if (selectedMember.quotaType === 'BOOKINGS' && selectedMember.quotaUsed + 1 > selectedMember.quotaLimit) {
+                setBookingError(
+                    `LỖI MEMBER_BOOKINGS_EXCEEDED (HTTP 422): Thành viên đã sử dụng hết số lượt đặt phòng (${selectedMember.quotaUsed}/${selectedMember.quotaLimit} lượt). Cần chuyển sang trả trước hoặc tiền mặt.`
+                );
+                return;
+            }
+            if (selectedMember.quotaType === 'HOURS' && selectedMember.quotaUsed + durationHours > selectedMember.quotaLimit) {
+                setBookingError(
+                    `LỖI MEMBER_HOURS_EXCEEDED (HTTP 422): Hạn mức giờ còn lại (${selectedMember.quotaLimit - selectedMember.quotaUsed} giờ) không đủ cho ca họp ${durationHours} giờ. Cần chuyển sang trả trước hoặc tiền mặt.`
                 );
                 return;
             }
@@ -369,11 +382,17 @@ function CorporateDebtsPage() {
                     m.id === selectedMember.id
                         ? {
                               ...m,
-                              quotaUsed: m.quotaType === 'CREDIT' ? m.quotaUsed + bookingAmount : m.quotaUsed + 1
+                              quotaUsed: m.quotaType === 'CREDIT' 
+                                  ? m.quotaUsed + bookingAmount 
+                                  : (m.quotaType === 'HOURS' ? m.quotaUsed + durationHours : m.quotaUsed + 1)
                           }
                         : m
                 )
             );
+
+            const consumedLabel = selectedMember.quotaType === 'CREDIT' 
+                ? formatVND(bookingAmount) 
+                : (selectedMember.quotaType === 'HOURS' ? `${durationHours}.0 giờ` : '1 lượt');
 
             // Ghi log lịch sử sử dụng
             const newLog: MemberUsageLog = {
@@ -385,7 +404,7 @@ function CorporateDebtsPage() {
                 bookingTime: `${new Date().toISOString().split('T')[0]} 14:00 - 16:00`,
                 actualCheckIn: 'Vừa check-in',
                 actualCheckOut: 'Đang sử dụng',
-                consumedQuota: formatVND(bookingAmount),
+                consumedQuota: consumedLabel,
                 status: 'COMPLETED'
             };
             setUsageLogs(prev => [newLog, ...prev]);
