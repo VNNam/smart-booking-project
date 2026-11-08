@@ -14,7 +14,9 @@ interface StoredBooking {
     id: string;
     bookingCode: string;
     roomId: string;
+    roomName?: string;
     slotId: string;
+    bookingDate?: string;
     startTime?: string;
     endTime?: string;
     bookingStatus: string;
@@ -43,10 +45,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
         const {
             roomId,
+            roomName,
             slotId,
             bookingDate,
             startTime,
             endTime,
+            hourlyRate,
+            totalAmount: clientTotalAmount,
             paymentMethod,
             customerName,
             customerPhone,
@@ -120,14 +125,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
         }
 
-        // 3. Tính toán tiền phòng chính xác có phụ thu cuối tuần VN
-        const baseRate = KNOWN_RATES[roomId] || 500000;
+        // 3. Tính toán tiền phòng chính xác: Ưu tiên đơn giá hourlyRate thực tế của phòng, triệt tiêu lỗi lệch giá
+        const baseRate = (typeof hourlyRate === 'number' && hourlyRate > 0)
+            ? hourlyRate
+            : (KNOWN_RATES[roomId] || 350000);
         const refTime = startTime ? new Date(startTime) : new Date();
         const vnDate = new Date(refTime.getTime() + 7 * 3600 * 1000);
         const vnDayOfWeek = vnDate.getUTCDay(); // 0 = CN, 6 = T7
         const isWeekend = vnDayOfWeek === 0 || vnDayOfWeek === 6;
         const weekendMultiplier = isWeekend ? 1.15 : 1.0;
-        const totalAmount = Math.round(durationHours * baseRate * weekendMultiplier);
+        const calculatedAmount = Math.round(durationHours * baseRate * weekendMultiplier);
+        // Khớp 100% với số tiền frontend đã tính toán hiển thị cho khách
+        const totalAmount = (typeof clientTotalAmount === 'number' && clientTotalAmount > 0)
+            ? clientTotalAmount
+            : calculatedAmount;
 
         // 4. Sinh mã đặt phòng & biên lai thu tiền mặt
         const now = new Date();
@@ -142,7 +153,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             id: bookingId,
             bookingCode,
             roomId,
+            roomName: roomName || (roomId === 'r0000000-0000-0000-0000-000000000001' ? 'Meeting Room Alpha' : (roomId === 'r0000000-0000-0000-0000-000000000002' ? 'Executive Boardroom Tokyo' : 'Phòng Họp Tiêu Chuẩn')),
             slotId: finalSlotId,
+            bookingDate: bookingDate || (startTime ? startTime.split('T')[0] : dateStr),
             startTime,
             endTime,
             bookingStatus: 'CONFIRMED_PAID',

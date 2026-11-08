@@ -425,10 +425,13 @@ function CashBookingPage() {
 
         const payload = {
             roomId: selectedRoom.id,
+            roomName: selectedRoom.name,
             slotId: selectedSlot.id,
             bookingDate: selectedDate,
             startTime: selectedSlot.startTime,
             endTime: selectedSlot.endTime,
+            hourlyRate: selectedRoom.hourlyRate,
+            totalAmount: calculateTotalAmount(),
             paymentMethod: 'CASH_ON_ARRIVAL',
             customerName: customerName.trim(),
             customerPhone: customerPhone.trim(),

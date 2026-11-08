@@ -22,6 +22,8 @@ interface ReconciliationItem {
     verifiedBy?: string;
     verifiedAt?: string;
     createdAt: string;
+    bookingDate?: string;
+    roomName?: string;
 }
 
 interface CashDrawerLog {
@@ -32,6 +34,10 @@ interface CashDrawerLog {
     amount: number;
     staffName: string;
     notes: string;
+    bookingDate?: string;
+    timeSlot?: string;
+    roomName?: string;
+    bookingCode?: string;
 }
 
 const DEFAULT_RECONCILIATIONS: ReconciliationItem[] = [
@@ -47,7 +53,9 @@ const DEFAULT_RECONCILIATIONS: ReconciliationItem[] = [
         notes: 'Tiền đã nổi về tài khoản Vietcombank lúc 09:20. Khớp 100%.',
         verifiedBy: 'Trần Thị Mai (Kế toán)',
         verifiedAt: '09:25',
-        createdAt: '2026-11-08 09:15'
+        createdAt: '2026-11-08 09:15',
+        bookingDate: '2026-11-08',
+        roomName: 'Phòng Hội Thảo A'
     },
     {
         id: 'rec-02',
@@ -61,7 +69,9 @@ const DEFAULT_RECONCILIATIONS: ReconciliationItem[] = [
         notes: 'Khớp lệnh thành công.',
         verifiedBy: 'Trần Thị Mai (Kế toán)',
         verifiedAt: '10:35',
-        createdAt: '2026-11-08 10:30'
+        createdAt: '2026-11-08 10:30',
+        bookingDate: '2026-11-08',
+        roomName: 'Phòng Họp VIP 1'
     },
     {
         id: 'rec-03',
@@ -75,7 +85,9 @@ const DEFAULT_RECONCILIATIONS: ReconciliationItem[] = [
         notes: 'Late webhook - Đã kiểm tra lệnh hoàn tiền tự động 1.200.000đ cho khách.',
         verifiedBy: 'Trần Thị Mai (Kế toán)',
         verifiedAt: '11:50',
-        createdAt: '2026-11-08 11:45'
+        createdAt: '2026-11-08 11:45',
+        bookingDate: '2026-11-08',
+        roomName: 'Phòng Sáng Tạo'
     },
     {
         id: 'rec-04',
@@ -89,7 +101,9 @@ const DEFAULT_RECONCILIATIONS: ReconciliationItem[] = [
         notes: 'Lễ tân đã nộp tiền mặt vào két ca trực.',
         verifiedBy: 'Trần Thị Mai (Kế toán)',
         verifiedAt: '13:05',
-        createdAt: '2026-11-08 13:00'
+        createdAt: '2026-11-08 13:00',
+        bookingDate: '2026-11-08',
+        roomName: 'Phòng Hội Thảo A'
     },
     {
         id: 'rec-05',
@@ -101,7 +115,9 @@ const DEFAULT_RECONCILIATIONS: ReconciliationItem[] = [
         gatewayStatus: 'MATCHED',
         reconciliationStatus: 'PENDING',
         notes: 'Chờ đối chiếu bảng kê ngân hàng ca chiều.',
-        createdAt: '2026-11-08 14:10'
+        createdAt: '2026-11-08 14:10',
+        bookingDate: '2026-11-09',
+        roomName: 'Phòng Họp VIP 2'
     }
 ];
 
@@ -121,6 +137,11 @@ function AccountingDashboardPage() {
     const [filterChannel, setFilterChannel] = useState<string>('ALL');
     const [filterStatus, setFilterStatus] = useState<string>('ALL');
 
+    // [UAT-ARCHITECT-FIX] Tiêu chí phân định ngày lọc:
+    // TRANSACTION_DATE = Ngày giao dịch thu tiền vào két (createdAt)
+    // USAGE_DATE = Ngày khách hàng đặt và sử dụng phòng họp (bookingDate)
+    const [dateFilterDimension, setDateFilterDimension] = useState<'TRANSACTION_DATE' | 'USAGE_DATE'>('TRANSACTION_DATE');
+
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const raw = localStorage.getItem(STORAGE_KEY_RECON);
@@ -135,9 +156,11 @@ function AccountingDashboardPage() {
         }
     }, []);
 
-    // Lọc dữ liệu theo khoảng thời gian [Từ ngày] - [Đến ngày] (bao gồm cả ngày bắt đầu và ngày kết thúc)
+    // Lọc dữ liệu theo khoảng thời gian [Từ ngày] - [Đến ngày] dựa trên tiêu chí dateFilterDimension
     const filteredReconciliations = reconciliations.filter((item) => {
-        const itemDate = item.createdAt.split(' ')[0]; // Định dạng YYYY-MM-DD
+        const itemDate = dateFilterDimension === 'USAGE_DATE'
+            ? (item.bookingDate || item.createdAt.split(' ')[0])
+            : item.createdAt.split(' ')[0]; // Định dạng YYYY-MM-DD
         const matchesDate = (!startDate || itemDate >= startDate) && (!endDate || itemDate <= endDate);
         const matchesChannel = filterChannel === 'ALL' || item.channel === filterChannel;
         const matchesStatus = filterStatus === 'ALL' || item.reconciliationStatus === filterStatus;
@@ -146,9 +169,9 @@ function AccountingDashboardPage() {
 
     const STORAGE_KEY_CASH_LOGS = 'smart_booking_cash_logs_v1';
     const DEFAULT_CASH_LOGS: CashDrawerLog[] = [
-        { id: 'c-01', date: '2026-11-08', time: '08:00', type: 'IN', amount: 2000000, staffName: 'Nguyễn Văn Quản Lý', notes: 'Tiền mặt đầu ca bàn giao' },
-        { id: 'c-02', date: '2026-11-08', time: '09:20', type: 'IN', amount: 700000, staffName: 'Lễ Tân Ca Trực', notes: 'Thu tiền mặt đơn BKG-202610-104' },
-        { id: 'c-03', date: '2026-11-08', time: '11:10', type: 'OUT', amount: 280000, staffName: 'Lễ Tân Ca Trực', notes: 'Hoàn tiền mặt 80% hủy đơn BKG-202610-099 (OTP duyệt)' }
+        { id: 'c-01', date: '2026-11-08', time: '08:00', type: 'IN', amount: 2000000, staffName: 'Nguyễn Văn Quản Lý', notes: 'Tiền mặt đầu ca bàn giao', bookingDate: '2026-11-08', timeSlot: '08:00 - 08:30', roomName: 'Két lễ tân' },
+        { id: 'c-02', date: '2026-11-08', time: '09:20', type: 'IN', amount: 700000, staffName: 'Lễ Tân Ca Trực', notes: 'Thu tiền mặt đơn BKG-202610-104', bookingDate: '2026-11-08', timeSlot: '09:00 - 11:00', roomName: 'Phòng Hội Thảo A', bookingCode: 'BKG-202610-104' },
+        { id: 'c-03', date: '2026-11-08', time: '11:10', type: 'OUT', amount: 280000, staffName: 'Lễ Tân Ca Trực', notes: 'Hoàn tiền mặt 80% hủy đơn BKG-202610-099 (OTP duyệt)', bookingDate: '2026-11-08', timeSlot: '14:00 - 16:00', roomName: 'Phòng Họp VIP 1', bookingCode: 'BKG-202610-099' }
     ];
 
     // Dữ liệu quỹ tiền mặt ca trực (hỗ trợ lưu trữ vĩnh viễn và đồng bộ tự động)
@@ -179,8 +202,13 @@ function AccountingDashboardPage() {
                             json.data.forEach((b: any) => {
                                 if (b.paymentMethod === 'CASH_ON_ARRIVAL') {
                                     const logId = b.cashBookEntryId || `c-${b.id}`;
-                                    const datePart = b.createdAt ? b.createdAt.split('T')[0] : '2026-11-08';
-                                    const timePart = b.createdAt ? b.createdAt.split('T')[1]?.slice(0, 5) || '12:00' : '12:00';
+                                    const datePart = b.createdAt ? b.createdAt.split('T')[0] : (b.bookingDate || '2026-11-08');
+                                    const timePart = b.createdAt ? (b.createdAt.split('T')[1]?.slice(0, 5) || '12:00') : '12:00';
+                                    const bookingDatePart = b.bookingDate || (b.startTime ? b.startTime.split('T')[0] : datePart);
+                                    const startH = b.startTime ? b.startTime.split('T')[1]?.slice(0, 5) : '';
+                                    const endH = b.endTime ? b.endTime.split('T')[1]?.slice(0, 5) : '';
+                                    const slotStr = startH && endH ? `${startH} - ${endH}` : (b.slotId || '');
+
                                     if (!map.has(logId)) {
                                         map.set(logId, {
                                             id: logId,
@@ -189,7 +217,11 @@ function AccountingDashboardPage() {
                                             type: 'IN',
                                             amount: typeof b.totalAmount === 'number' ? b.totalAmount : Number(b.totalAmount),
                                             staffName: 'Lễ Tân Ca Trực',
-                                            notes: `Thu tiền mặt đơn ${b.bookingCode} - ${b.customerName || 'Khách tại quầy'}`
+                                            notes: `Thu tiền mặt đơn ${b.bookingCode || b.id} - ${b.customerName || 'Khách tại quầy'}`,
+                                            bookingDate: bookingDatePart,
+                                            timeSlot: slotStr,
+                                            roomName: b.roomName || 'Phòng họp',
+                                            bookingCode: b.bookingCode || b.id
                                         });
                                     }
                                 }
@@ -221,16 +253,17 @@ function AccountingDashboardPage() {
         return () => window.removeEventListener('storage', handleSync);
     }, []);
 
-    // [BA-FIX G-19] Áp dụng bộ lọc khoảng thời gian [Từ ngày] - [Đến ngày] cho cả Sổ quỹ tiền mặt
+    // [UAT-ARCHITECT-FIX] Áp dụng bộ lọc khoảng thời gian theo tiêu chí dateFilterDimension
     const filteredCashLogs = cashLogs.filter((c) => {
-        return (!startDate || c.date >= startDate) && (!endDate || c.date <= endDate);
+        const targetDate = dateFilterDimension === 'USAGE_DATE' ? (c.bookingDate || c.date) : c.date;
+        return (!startDate || targetDate >= startDate) && (!endDate || targetDate <= endDate);
     });
 
     const totalCashIn = filteredCashLogs.filter(c => c.type === 'IN').reduce((acc, c) => acc + c.amount, 0);
     const totalCashOut = filteredCashLogs.filter(c => c.type === 'OUT').reduce((acc, c) => acc + c.amount, 0);
     const netCashInDrawer = totalCashIn - totalCashOut;
 
-    // [MODULE 3] Thống kê tổng hợp thu/chi tiền mặt nhóm theo từng ngày
+    // [MODULE 3] Thống kê tổng hợp thu/chi tiền mặt nhóm theo từng ngày dựa trên dateFilterDimension
     const dailyCashSummary = useMemo(() => {
         const map = new Map<string, {
             date: string;
@@ -242,9 +275,10 @@ function AccountingDashboardPage() {
         }>();
 
         filteredCashLogs.forEach(c => {
-            if (!map.has(c.date)) {
-                map.set(c.date, {
-                    date: c.date,
+            const groupDate = dateFilterDimension === 'USAGE_DATE' ? (c.bookingDate || c.date) : c.date;
+            if (!map.has(groupDate)) {
+                map.set(groupDate, {
+                    date: groupDate,
                     cashInAmount: 0,
                     cashInCount: 0,
                     cashOutAmount: 0,
@@ -252,7 +286,7 @@ function AccountingDashboardPage() {
                     netAmount: 0
                 });
             }
-            const day = map.get(c.date)!;
+            const day = map.get(groupDate)!;
             if (c.type === 'IN') {
                 day.cashInAmount += c.amount;
                 day.cashInCount += 1;
@@ -264,7 +298,7 @@ function AccountingDashboardPage() {
         });
 
         return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
-    }, [filteredCashLogs]);
+    }, [filteredCashLogs, dateFilterDimension]);
 
     // Đánh dấu giao dịch ĐÃ KHỚP
     const handleMarkMatched = (id: string) => {
@@ -405,6 +439,134 @@ function AccountingDashboardPage() {
                     </div>
                 </div>
 
+                {/* BỘ LỌC ĐỐI SOÁT TOÀN DIỆN: KHOẢNG THỜI GIAN & TIÊU CHÍ LỌC NGÀY (UAT-ARCHITECT-FIX) */}
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        {/* Cột trái: Khoảng ngày và Phím chọn nhanh */}
+                        <div className="flex flex-wrap items-center gap-3">
+                            <span className="text-xs font-bold text-slate-200 flex items-center space-x-1.5">
+                                <span>📅</span>
+                                <span>Khoảng Thời Gian:</span>
+                            </span>
+                            <div className="flex items-center space-x-2">
+                                <label className="text-xs font-medium text-slate-400">Từ:</label>
+                                <input
+                                    type="date"
+                                    value={startDate}
+                                    max={endDate || undefined}
+                                    onChange={(e) => {
+                                        const v = e.target.value;
+                                        setStartDate(v);
+                                        if (v && endDate && v > endDate) setEndDate(v);
+                                    }}
+                                    className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
+                                />
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                <label className="text-xs font-medium text-slate-400">Đến:</label>
+                                <input
+                                    type="date"
+                                    value={endDate}
+                                    min={startDate || undefined}
+                                    onChange={(e) => {
+                                        const v = e.target.value;
+                                        setEndDate(v);
+                                        if (v && startDate && v < startDate) setStartDate(v);
+                                    }}
+                                    className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
+                                />
+                            </div>
+                            {/* Phím chọn nhanh khoảng ngày */}
+                            <div className="flex items-center space-x-1">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const today = getVnNow().dateStr;
+                                        setStartDate(today);
+                                        setEndDate(today);
+                                    }}
+                                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 font-medium transition"
+                                >
+                                    Hôm nay
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const today = getVnNow().dateStr;
+                                        setStartDate(addDaysToDateStr(today, -6));
+                                        setEndDate(today);
+                                    }}
+                                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 font-medium transition"
+                                >
+                                    7 ngày qua
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const today = getVnNow().dateStr;
+                                        setStartDate(startOfMonthStr(today));
+                                        setEndDate(today);
+                                    }}
+                                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 font-medium transition"
+                                >
+                                    Tháng này
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Cột phải: Chọn Tiêu Chí Lọc Ngày (Segmented Dimension Control) */}
+                        <div className="flex items-center space-x-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+                            <span className="text-[11px] font-semibold text-slate-400 pl-2 pr-1">Tiêu chí lọc ngày:</span>
+                            <button
+                                type="button"
+                                onClick={() => setDateFilterDimension('TRANSACTION_DATE')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+                                    dateFilterDimension === 'TRANSACTION_DATE'
+                                        ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                                }`}
+                                title="Lọc theo ngày nhân viên thực hiện thu tiền mặt vào két / giao dịch thanh toán phát sinh"
+                            >
+                                <span>💵</span>
+                                <span>Theo Ngày Giao Dịch / Thu Tiền Két</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setDateFilterDimension('USAGE_DATE')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+                                    dateFilterDimension === 'USAGE_DATE'
+                                        ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                                }`}
+                                title="Lọc theo ngày khách hàng đặt và sử dụng phòng họp"
+                            >
+                                <span>🏢</span>
+                                <span>Theo Ngày Sử Dụng Phòng (Booking)</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Hướng dẫn ngữ cảnh động cho Kế toán & Thủ quỹ */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/80 gap-1">
+                        <div>
+                            {dateFilterDimension === 'TRANSACTION_DATE' ? (
+                                <span className="text-amber-300 font-medium flex items-center space-x-1">
+                                    <span>⚡</span>
+                                    <span><strong>Chế độ Sổ Quỹ & Thủ Quỹ:</strong> Lọc theo <u>Ngày Giao Dịch Thu/Chi Tiền Két</u> (Phục vụ kiểm đếm tiền mặt thực tế, chốt ca trực).</span>
+                                </span>
+                            ) : (
+                                <span className="text-sky-300 font-medium flex items-center space-x-1">
+                                    <span>🏢</span>
+                                    <span><strong>Chế độ Kế Toán Doanh Thu:</strong> Lọc theo <u>Ngày Khách Hàng Sử Dụng Phòng</u> (Phục vụ ghi nhận doanh thu dịch vụ theo lịch đặt phòng).</span>
+                                </span>
+                            )}
+                        </div>
+                        <div className="text-slate-500 font-mono">
+                            Đang áp dụng: <strong>{startDate}</strong> đến <strong>{endDate}</strong>
+                        </div>
+                    </div>
+                </div>
+
                 {/* Navigation Tabs */}
                 <div className="flex border-b border-slate-800 space-x-2 text-xs font-semibold">
                     <button
@@ -473,106 +635,34 @@ function AccountingDashboardPage() {
                             </div>
                         </div>
 
-                        {/* Bộ Lọc Đối Soát Theo Khoảng Thời Gian (Date Range Filter via Calendar) */}
-                        <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-3">
-                            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                                <div className="flex flex-wrap items-center gap-3">
-                                    <div className="flex items-center space-x-2">
-                                        <label className="text-xs font-semibold text-slate-300">Từ ngày:</label>
-                                        <input
-                                            type="date"
-                                            value={startDate}
-                                            max={endDate || undefined}
-                                            onChange={(e) => {
-                                                // [BA-FIX G-16] Bảo đảm from <= to: nếu chọn Từ ngày > Đến ngày thì kéo Đến ngày theo
-                                                const v = e.target.value;
-                                                setStartDate(v);
-                                                if (v && endDate && v > endDate) setEndDate(v);
-                                            }}
-                                            className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
-                                        />
-                                    </div>
-                                    <div className="flex items-center space-x-2">
-                                        <label className="text-xs font-semibold text-slate-300">Đến ngày:</label>
-                                        <input
-                                            type="date"
-                                            value={endDate}
-                                            min={startDate || undefined}
-                                            onChange={(e) => {
-                                                const v = e.target.value;
-                                                setEndDate(v);
-                                                if (v && startDate && v < startDate) setStartDate(v);
-                                            }}
-                                            className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
-                                        />
-                                    </div>
-                                    {/* Nút lọc nhanh — [BA-FIX G-18] tính theo ngày VN, không dùng toISOString() (ngày UTC) */}
-                                    <div className="flex items-center space-x-1">
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const today = getVnNow().dateStr;
-                                                setStartDate(today);
-                                                setEndDate(today);
-                                            }}
-                                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 font-medium"
-                                        >
-                                            Hôm nay
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                // 7 ngày tính cả hôm nay: [today - 6, today]
-                                                const today = getVnNow().dateStr;
-                                                setStartDate(addDaysToDateStr(today, -6));
-                                                setEndDate(today);
-                                            }}
-                                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 font-medium"
-                                        >
-                                            7 ngày qua
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const today = getVnNow().dateStr;
-                                                setStartDate(startOfMonthStr(today));
-                                                setEndDate(today);
-                                            }}
-                                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 font-medium"
-                                        >
-                                            Tháng này
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <select
-                                        value={filterChannel}
-                                        onChange={(e) => setFilterChannel(e.target.value)}
-                                        className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
-                                    >
-                                        <option value="ALL">Tất cả kênh (MoMo, Cash...)</option>
-                                        <option value="MOMO">MoMo API v3</option>
-                                        <option value="CASH">Tiền mặt tại quầy (CASH)</option>
-                                        <option value="VNPAY">VNPAY QR</option>
-                                        <option value="WALLET">Ví thành viên (WALLET)</option>
-                                    </select>
-                                    <select
-                                        value={filterStatus}
-                                        onChange={(e) => setFilterStatus(e.target.value)}
-                                        className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
-                                    >
-                                        <option value="ALL">Tất cả trạng thái</option>
-                                        <option value="MATCHED">✓ Đã khớp</option>
-                                        <option value="DISCREPANCY">⚠ Báo lệch</option>
-                                        <option value="PENDING">⏳ Chờ soát</option>
-                                    </select>
-                                </div>
+                        {/* Bộ lọc Kênh & Trạng thái đối soát */}
+                        <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                            <div className="flex items-center space-x-2">
+                                <span className="text-slate-400">Lọc theo kênh:</span>
+                                <select
+                                    value={filterChannel}
+                                    onChange={(e) => setFilterChannel(e.target.value)}
+                                    className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
+                                >
+                                    <option value="ALL">Tất cả kênh (MoMo, Cash...)</option>
+                                    <option value="MOMO">MoMo API v3</option>
+                                    <option value="CASH">Tiền mặt tại quầy (CASH)</option>
+                                    <option value="VNPAY">VNPAY QR</option>
+                                    <option value="WALLET">Ví thành viên (WALLET)</option>
+                                </select>
+                                <select
+                                    value={filterStatus}
+                                    onChange={(e) => setFilterStatus(e.target.value)}
+                                    className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
+                                >
+                                    <option value="ALL">Tất cả trạng thái</option>
+                                    <option value="MATCHED">✓ Đã khớp</option>
+                                    <option value="DISCREPANCY">⚠ Báo lệch</option>
+                                    <option value="PENDING">⏳ Chờ soát</option>
+                                </select>
                             </div>
-
-                            <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-800/80">
-                                <span>Kết quả lọc: Hiển thị <strong>{filteredReconciliations.length}</strong> / {reconciliations.length} giao dịch</span>
-                                <span>Khoảng thời gian: <strong>{startDate}</strong> đến <strong>{endDate}</strong> (Bao gồm cả 2 mốc)</span>
+                            <div className="text-[11px] text-slate-400">
+                                Hiển thị <strong>{filteredReconciliations.length}</strong> / {reconciliations.length} giao dịch đối soát
                             </div>
                         </div>
 
@@ -732,7 +822,9 @@ function AccountingDashboardPage() {
                                             {dailyCashSummary.length} ngày phát sinh
                                         </span>
                                     </h3>
-                                    <p className="text-xs text-slate-400 mt-0.5">Tổng hợp đối soát tiền mặt theo từng ngày trong khoảng thời gian {startDate} đến {endDate}</p>
+                                    <p className="text-xs text-slate-400 mt-0.5">
+                                        Tổng hợp thu/chi tiền mặt nhóm theo từng {dateFilterDimension === 'USAGE_DATE' ? 'ngày khách sử dụng phòng' : 'ngày giao dịch thu tiền mặt thực tế'} trong khoảng thời gian {startDate} đến {endDate}
+                                    </p>
                                 </div>
                             </div>
 
@@ -740,7 +832,9 @@ function AccountingDashboardPage() {
                                 <table className="w-full text-left text-xs">
                                     <thead>
                                         <tr className="border-b border-slate-800 text-slate-400">
-                                            <th className="pb-3 font-semibold">Ngày Thu Tiền</th>
+                                            <th className="pb-3 font-semibold">
+                                                {dateFilterDimension === 'USAGE_DATE' ? 'Ngày Khách Dùng Phòng' : 'Ngày Thu Tiền (Két)'}
+                                            </th>
                                             <th className="pb-3 font-semibold text-center">Lượt Thu (+)</th>
                                             <th className="pb-3 font-semibold">Tổng Thu Mặt (+)</th>
                                             <th className="pb-3 font-semibold text-center">Lượt Chi (-)</th>
@@ -799,7 +893,7 @@ function AccountingDashboardPage() {
                             <div className="flex items-center justify-between">
                                 <div>
                                     <h3 className="text-sm font-bold text-white">💵 Sổ Quỹ Tiền Mặt Chi Tiết & Bàn Giao Ca Trực (Two-Man Rule)</h3>
-                                    <p className="text-xs text-slate-400">Minh bạch dòng tiền mặt tại quầy lễ tân và thủ tục bàn giao kết ca</p>
+                                    <p className="text-xs text-slate-400">Minh bạch dòng tiền mặt tại quầy lễ tân: đối chiếu song song ngày thu tiền két và ngày khách sử dụng phòng</p>
                                 </div>
                                 <button
                                     onClick={() => alert('Đã chốt sổ ca trực và gửi mã OTP xác nhận tới Trưởng ca qua SMS/App!')}
@@ -813,25 +907,32 @@ function AccountingDashboardPage() {
                                 <table className="w-full text-left text-xs">
                                     <thead>
                                         <tr className="border-b border-slate-800 text-slate-400">
-                                            <th className="pb-3 font-semibold">Thời Gian</th>
+                                            <th className="pb-3 font-semibold">Thời Gian Thu/Chi</th>
+                                            <th className="pb-3 font-semibold">Ngày Dùng & Khung Giờ</th>
+                                            <th className="pb-3 font-semibold">Phòng Họp</th>
                                             <th className="pb-3 font-semibold">Loại Nghiệp Vụ</th>
                                             <th className="pb-3 font-semibold">Số Tiền</th>
                                             <th className="pb-3 font-semibold">Nhân Sự Thực Hiện</th>
-                                            <th className="pb-3 font-semibold">Nội Dung Giao Dịch</th>
+                                            <th className="pb-3 font-semibold">Nội Dung / Mã Đơn Phòng</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-800/60">
                                         {filteredCashLogs.length === 0 ? (
                                             <tr>
-                                                <td colSpan={5} className="py-8 text-center text-slate-500">
+                                                <td colSpan={7} className="py-8 text-center text-slate-500">
                                                     Không có giao dịch quỹ tiền mặt nào trong khoảng thời gian {startDate} đến {endDate}.
                                                 </td>
                                             </tr>
                                         ) : (
                                             filteredCashLogs.map(log => (
                                                 <tr key={log.id} className="hover:bg-slate-800/30">
-                                                    <td className="py-3.5 font-mono text-slate-400">{log.date} {log.time}</td>
-                                                    <td className="py-3.5">
+                                                    <td className="py-3.5 font-mono text-slate-400 whitespace-nowrap">{log.date} {log.time}</td>
+                                                    <td className="py-3.5 whitespace-nowrap">
+                                                        <div className="font-semibold text-white">{log.bookingDate || log.date}</div>
+                                                        <div className="text-[10px] text-slate-400">{log.timeSlot || 'Cả khung giờ'}</div>
+                                                    </td>
+                                                    <td className="py-3.5 font-medium text-emerald-300">{log.roomName || 'Phòng họp'}</td>
+                                                    <td className="py-3.5 whitespace-nowrap">
                                                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
                                                             log.type === 'IN'
                                                                 ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
@@ -840,10 +941,10 @@ function AccountingDashboardPage() {
                                                             {log.type === 'IN' ? '↓ THU TIỀN VÀO' : '↑ CHI HOÀN TRẢ'}
                                                         </span>
                                                     </td>
-                                                    <td className={`py-3.5 font-bold ${log.type === 'IN' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                    <td className={`py-3.5 font-bold whitespace-nowrap ${log.type === 'IN' ? 'text-emerald-400' : 'text-rose-400'}`}>
                                                         {log.type === 'IN' ? '+' : '-'}{formatVND(log.amount)}
                                                     </td>
-                                                    <td className="py-3.5 text-slate-300 font-medium">{log.staffName}</td>
+                                                    <td className="py-3.5 text-slate-300 font-medium whitespace-nowrap">{log.staffName}</td>
                                                     <td className="py-3.5 text-slate-400 italic">{log.notes}</td>
                                                 </tr>
                                             ))
