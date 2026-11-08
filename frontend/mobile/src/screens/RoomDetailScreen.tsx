@@ -25,16 +25,17 @@ interface TimeSlot {
     id: string;
     startTime: string; // e.g. "09:00"
     endTime: string;   // e.g. "11:00"
+    startMinutes: number;
     durationHours: number;
     status: 'AVAILABLE' | 'LOCKED' | 'BOOKED';
 }
 
-const MOCK_SLOTS: TimeSlot[] = [
-    { id: 's-01', startTime: '08:00', endTime: '10:00', durationHours: 2, status: 'AVAILABLE' },
-    { id: 's-02', startTime: '10:00', endTime: '12:00', durationHours: 2, status: 'LOCKED' },
-    { id: 's-03', startTime: '13:00', endTime: '15:00', durationHours: 2, status: 'AVAILABLE' },
-    { id: 's-04', startTime: '15:30', endTime: '17:30', durationHours: 2, status: 'AVAILABLE' },
-    { id: 's-05', startTime: '18:00', endTime: '20:00', durationHours: 2, status: 'BOOKED' }
+const ALL_STANDARD_SLOTS: TimeSlot[] = [
+    { id: 's-01', startTime: '08:00', endTime: '10:00', startMinutes: 8 * 60, durationHours: 2, status: 'AVAILABLE' },
+    { id: 's-02', startTime: '10:00', endTime: '12:00', startMinutes: 10 * 60, durationHours: 2, status: 'LOCKED' },
+    { id: 's-03', startTime: '13:00', endTime: '15:00', startMinutes: 13 * 60, durationHours: 2, status: 'AVAILABLE' },
+    { id: 's-04', startTime: '15:30', endTime: '17:30', startMinutes: 15 * 60 + 30, durationHours: 2, status: 'AVAILABLE' },
+    { id: 's-05', startTime: '18:00', endTime: '20:00', startMinutes: 18 * 60, durationHours: 2, status: 'AVAILABLE' }
 ];
 
 function formatVND(amount: number): string {
@@ -53,9 +54,35 @@ export default function RoomDetailScreen({ route, navigation }: any) {
         currentStatus: 'AVAILABLE'
     };
 
+    // Ngữ cảnh ngày chọn (QIC Rules)
+    const [selectedDateTab, setSelectedDateTab] = useState<'TODAY' | 'TOMORROW' | 'WEEKEND'>('TODAY');
     const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
 
-    const calculatedTotal = selectedSlot ? selectedSlot.durationHours * room.hourlyRate : 0;
+    // Tính toán danh sách slot khả dụng tuân thủ tuyệt đối Business Rules (QIC):
+    // Rule 1: Nếu là Hôm nay -> Chỉ hiển thị khung giờ tính từ current time đến hết ngày. Ẩn/loại bỏ slot quá khứ.
+    // Rule 2: Nếu là Ngày mai / Cuối tuần -> Hiển thị toàn bộ các khung giờ trong ngày.
+    const availableSlots = React.useMemo(() => {
+        if (selectedDateTab === 'TODAY') {
+            const now = new Date();
+            const currentMinutes = now.getHours() * 60 + now.getMinutes();
+            // Lọc bỏ toàn bộ slot mà thời gian bắt đầu đã qua
+            return ALL_STANDARD_SLOTS.filter((s) => s.startMinutes > currentMinutes);
+        }
+        // Ngày mai hoặc cuối tuần: mở toàn bộ
+        return ALL_STANDARD_SLOTS;
+    }, [selectedDateTab]);
+
+    // Tính toán phụ thu cuối tuần nếu chọn tab WEEKEND
+    const isWeekend = selectedDateTab === 'WEEKEND';
+    const rateMultiplier = isWeekend ? 1.15 : 1.0;
+    const calculatedTotal = selectedSlot
+        ? Math.round(selectedSlot.durationHours * room.hourlyRate * rateMultiplier)
+        : 0;
+
+    const handleDateTabChange = (tab: 'TODAY' | 'TOMORROW' | 'WEEKEND') => {
+        setSelectedDateTab(tab);
+        setSelectedSlot(null); // Reset slot khi đổi ngày để tránh xung đột
+    };
 
     const handleProceedToCheckout = () => {
         if (!selectedSlot) {
@@ -66,7 +93,8 @@ export default function RoomDetailScreen({ route, navigation }: any) {
         navigation.navigate('Checkout', {
             room,
             slot: selectedSlot,
-            totalAmount: calculatedTotal
+            totalAmount: calculatedTotal,
+            isWeekend
         });
     };
 

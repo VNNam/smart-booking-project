@@ -112,6 +112,12 @@ function AccountingDashboardPage() {
     // Dữ liệu đối soát có lưu trữ bền vững
     const [reconciliations, setReconciliations] = useState<ReconciliationItem[]>(DEFAULT_RECONCILIATIONS);
 
+    // Bộ lọc đối soát theo Khoảng thời gian (Date Range Filter via Calendar) & Kênh
+    const [startDate, setStartDate] = useState<string>('2026-11-01');
+    const [endDate, setEndDate] = useState<string>('2026-11-08');
+    const [filterChannel, setFilterChannel] = useState<string>('ALL');
+    const [filterStatus, setFilterStatus] = useState<string>('ALL');
+
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const raw = localStorage.getItem(STORAGE_KEY_RECON);
@@ -125,6 +131,15 @@ function AccountingDashboardPage() {
             }
         }
     }, []);
+
+    // Lọc dữ liệu theo khoảng thời gian [Từ ngày] - [Đến ngày] (bao gồm cả ngày bắt đầu và ngày kết thúc)
+    const filteredReconciliations = reconciliations.filter((item) => {
+        const itemDate = item.createdAt.split(' ')[0]; // Định dạng YYYY-MM-DD
+        const matchesDate = (!startDate || itemDate >= startDate) && (!endDate || itemDate <= endDate);
+        const matchesChannel = filterChannel === 'ALL' || item.channel === filterChannel;
+        const matchesStatus = filterStatus === 'ALL' || item.reconciliationStatus === filterStatus;
+        return matchesDate && matchesChannel && matchesStatus;
+    });
 
     // Dữ liệu quỹ tiền mặt ca trực
     const [cashLogs] = useState<CashDrawerLog[]>([
@@ -344,6 +359,98 @@ function AccountingDashboardPage() {
                             </div>
                         </div>
 
+                        {/* Bộ Lọc Đối Soát Theo Khoảng Thời Gian (Date Range Filter via Calendar) */}
+                        <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-3">
+                            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <div className="flex items-center space-x-2">
+                                        <label className="text-xs font-semibold text-slate-300">Từ ngày:</label>
+                                        <input
+                                            type="date"
+                                            value={startDate}
+                                            onChange={(e) => setStartDate(e.target.value)}
+                                            className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
+                                        />
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                        <label className="text-xs font-semibold text-slate-300">Đến ngày:</label>
+                                        <input
+                                            type="date"
+                                            value={endDate}
+                                            onChange={(e) => setEndDate(e.target.value)}
+                                            className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
+                                        />
+                                    </div>
+                                    {/* Nút lọc nhanh */}
+                                    <div className="flex items-center space-x-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const today = new Date().toISOString().split('T')[0];
+                                                setStartDate(today);
+                                                setEndDate(today);
+                                            }}
+                                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 font-medium"
+                                        >
+                                            Hôm nay
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const d = new Date();
+                                                d.setDate(d.getDate() - 7);
+                                                setStartDate(d.toISOString().split('T')[0]);
+                                                setEndDate(new Date().toISOString().split('T')[0]);
+                                            }}
+                                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 font-medium"
+                                        >
+                                            7 ngày qua
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const d = new Date();
+                                                setStartDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`);
+                                                setEndDate(new Date().toISOString().split('T')[0]);
+                                            }}
+                                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 font-medium"
+                                        >
+                                            Tháng này
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <select
+                                        value={filterChannel}
+                                        onChange={(e) => setFilterChannel(e.target.value)}
+                                        className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
+                                    >
+                                        <option value="ALL">Tất cả kênh (MoMo, Cash...)</option>
+                                        <option value="MOMO">MoMo API v3</option>
+                                        <option value="CASH">Tiền mặt tại quầy (CASH)</option>
+                                        <option value="VNPAY">VNPAY QR</option>
+                                        <option value="WALLET">Ví thành viên (WALLET)</option>
+                                    </select>
+                                    <select
+                                        value={filterStatus}
+                                        onChange={(e) => setFilterStatus(e.target.value)}
+                                        className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 text-xs focus:ring-1 focus:ring-emerald-500 outline-none"
+                                    >
+                                        <option value="ALL">Tất cả trạng thái</option>
+                                        <option value="MATCHED">✓ Đã khớp</option>
+                                        <option value="DISCREPANCY">⚠ Báo lệch</option>
+                                        <option value="PENDING">⏳ Chờ soát</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-800/80">
+                                <span>Kết quả lọc: Hiển thị <strong>{filteredReconciliations.length}</strong> / {reconciliations.length} giao dịch</span>
+                                <span>Khoảng thời gian: <strong>{startDate}</strong> đến <strong>{endDate}</strong> (Bao gồm cả 2 mốc)</span>
+                            </div>
+                        </div>
+
                         {/* Status bar */}
                         <div className="grid grid-cols-3 gap-3 p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-xs">
                             <div className="flex items-center justify-between px-2">
@@ -376,7 +483,14 @@ function AccountingDashboardPage() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/60">
-                                    {reconciliations.map(rec => (
+                                    {filteredReconciliations.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={9} className="py-8 text-center text-slate-500">
+                                                Không tìm thấy giao dịch nào trong khoảng thời gian từ {startDate} đến {endDate}.
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        filteredReconciliations.map(rec => (
                                         <tr key={rec.id} className="hover:bg-slate-800/30 transition">
                                             <td className="py-3.5 font-bold text-white">{rec.bookingCode}</td>
                                             <td className="py-3.5 font-bold text-pink-400">{rec.channel}</td>
@@ -444,7 +558,7 @@ function AccountingDashboardPage() {
                                                 </button>
                                             </td>
                                         </tr>
-                                    ))}
+                                    )))}
                                 </tbody>
                             </table>
                         </div>
@@ -499,7 +613,7 @@ function AccountingDashboardPage() {
                                             <td className="py-3.5 text-slate-300 font-medium">{log.staffName}</td>
                                             <td className="py-3.5 text-slate-400 italic">{log.notes}</td>
                                         </tr>
-                                    ))}
+                                    )))}
                                 </tbody>
                             </table>
                         </div>

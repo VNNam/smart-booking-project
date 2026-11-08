@@ -26,11 +26,124 @@ interface CompanyDebt {
     status: 'ACTIVE' | 'WARNING' | 'SUSPENDED';
 }
 
+export interface CorporateMember {
+    id: string;
+    companyId: string;
+    companyName: string;
+    fullName: string;
+    email: string;
+    phone: string;
+    department: string;
+    quotaType: 'CREDIT' | 'BOOKINGS' | 'HOURS';
+    quotaLimit: number;
+    quotaUsed: number;
+    resetCycle: 'MONTHLY' | 'WEEKLY' | 'MANUAL';
+    status: 'ACTIVE' | 'SUSPENDED';
+}
+
+export interface MemberUsageLog {
+    id: string;
+    memberId: string;
+    memberName: string;
+    companyName: string;
+    roomName: string;
+    bookingTime: string;
+    actualCheckIn: string;
+    actualCheckOut: string;
+    consumedQuota: string;
+    status: 'COMPLETED' | 'CANCELLED';
+}
+
 function formatVND(amount: number): string {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 }
 
+const DEFAULT_MEMBERS: CorporateMember[] = [
+    {
+        id: 'mem-01',
+        companyId: 'c-01',
+        companyName: 'FPT Software Corp',
+        fullName: 'Lê Hoàng Nam (Tech Lead)',
+        email: 'nam.le@fpt.com',
+        phone: '0912111222',
+        department: 'Engineering Unit 1',
+        quotaType: 'CREDIT',
+        quotaLimit: 15000000,
+        quotaUsed: 9500000,
+        resetCycle: 'MONTHLY',
+        status: 'ACTIVE'
+    },
+    {
+        id: 'mem-02',
+        companyId: 'c-01',
+        companyName: 'FPT Software Corp',
+        fullName: 'Trần Thị Thu Thảo (Scrum Master)',
+        email: 'thao.tran@fpt.com',
+        phone: '0912333444',
+        department: 'Delivery Project A',
+        quotaType: 'HOURS',
+        quotaLimit: 30, // 30 giờ/tháng
+        quotaUsed: 18,
+        resetCycle: 'MONTHLY',
+        status: 'ACTIVE'
+    },
+    {
+        id: 'mem-03',
+        companyId: 'c-02',
+        companyName: 'Viettel Telecom',
+        fullName: 'Phạm Minh Đức (Product Owner)',
+        email: 'duc.pm@viettel.com.vn',
+        phone: '0988555666',
+        department: 'Digital Business Center',
+        quotaType: 'BOOKINGS',
+        quotaLimit: 12, // 12 lượt/tháng
+        quotaUsed: 12, // Đã chạm trần
+        resetCycle: 'MONTHLY',
+        status: 'SUSPENDED'
+    }
+];
+
+const DEFAULT_USAGE_LOGS: MemberUsageLog[] = [
+    {
+        id: 'log-01',
+        memberId: 'mem-01',
+        memberName: 'Lê Hoàng Nam',
+        companyName: 'FPT Software Corp',
+        roomName: 'Executive Boardroom Tokyo',
+        bookingTime: '2026-11-08 09:00 - 11:00',
+        actualCheckIn: '2026-11-08 08:58',
+        actualCheckOut: '2026-11-08 11:02',
+        consumedQuota: '1.300.000 đ',
+        status: 'COMPLETED'
+    },
+    {
+        id: 'log-02',
+        memberId: 'mem-02',
+        memberName: 'Trần Thị Thu Thảo',
+        companyName: 'FPT Software Corp',
+        roomName: 'Meeting Room Alpha',
+        bookingTime: '2026-11-07 14:00 - 16:00',
+        actualCheckIn: '2026-11-07 14:05',
+        actualCheckOut: '2026-11-07 15:55',
+        consumedQuota: '2.0 giờ',
+        status: 'COMPLETED'
+    },
+    {
+        id: 'log-03',
+        memberId: 'mem-03',
+        memberName: 'Phạm Minh Đức',
+        companyName: 'Viettel Telecom',
+        roomName: 'Grand Boardroom New York',
+        bookingTime: '2026-11-06 10:00 - 12:00',
+        actualCheckIn: 'Chưa check-in',
+        actualCheckOut: 'Chưa check-out',
+        consumedQuota: '0 lượt (Hủy trước 24h hoàn quota)',
+        status: 'CANCELLED'
+    }
+];
+
 function CorporateDebtsPage() {
+    const [activeTab, setActiveTab] = useState<'COMPANIES' | 'POSTPAID_TEST' | 'USAGE_LOGS'>('COMPANIES');
     const [companies, setCompanies] = useState<CompanyDebt[]>([
         {
             id: 'c-01',
@@ -67,15 +180,135 @@ function CorporateDebtsPage() {
         }
     ]);
 
+    const [members, setMembers] = useState<CorporateMember[]>(DEFAULT_MEMBERS);
+    const [usageLogs, setUsageLogs] = useState<MemberUsageLog[]>(DEFAULT_USAGE_LOGS);
+
     const [selectedCompany, setSelectedCompany] = useState<CompanyDebt | null>(null);
+    const [selectedMember, setSelectedMember] = useState<CorporateMember | null>(null);
+
+    // Modal Forms
+    const [showAddCompanyModal, setShowAddCompanyModal] = useState(false);
+    const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+    const [editingMemberQuota, setEditingMemberQuota] = useState<CorporateMember | null>(null);
+
+    // Form inputs cho Công ty mới
+    const [newCompanyName, setNewCompanyName] = useState('');
+    const [newTaxCode, setNewTaxCode] = useState('');
+    const [newAccountCode, setNewAccountCode] = useState('');
+    const [newCreditLimit, setNewCreditLimit] = useState(30000000);
+    const [newContactPerson, setNewContactPerson] = useState('');
+    const [newContactPhone, setNewContactPhone] = useState('');
+
+    // Form inputs cho Thành viên mới
+    const [newMemberName, setNewMemberName] = useState('');
+    const [newMemberEmail, setNewMemberEmail] = useState('');
+    const [newMemberPhone, setNewMemberPhone] = useState('');
+    const [newMemberDept, setNewMemberDept] = useState('Khối Kỹ Thuật');
+    const [newMemberQuotaType, setNewMemberQuotaType] = useState<'CREDIT' | 'BOOKINGS' | 'HOURS'>('CREDIT');
+    const [newMemberQuotaLimit, setNewMemberQuotaLimit] = useState(10000000);
+    const [newMemberResetCycle, setNewMemberResetCycle] = useState<'MONTHLY' | 'WEEKLY' | 'MANUAL'>('MONTHLY');
+
+    // Form inputs sửa hạn mức
+    const [editQuotaLimit, setEditQuotaLimit] = useState<number>(0);
+    const [editResetCycle, setEditResetCycle] = useState<'MONTHLY' | 'WEEKLY' | 'MANUAL'>('MONTHLY');
+
     const [bookingAmount, setBookingAmount] = useState<number>(1000000);
     const [bookingRoomName, setBookingRoomName] = useState<string>('Meeting Room Alpha');
     const [bookingError, setBookingError] = useState<string | null>(null);
     const [bookingSuccess, setBookingSuccess] = useState<string | null>(null);
+    const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+    // Mặc định chọn công ty đầu tiên
+    React.useEffect(() => {
+        if (!selectedCompany && companies.length > 0) {
+            setSelectedCompany(companies[0]);
+        }
+    }, [companies, selectedCompany]);
 
     // Tính toán tỷ lệ sử dụng công nợ
     const getUsagePercent = (company: CompanyDebt): number => {
         return Math.min(100, Math.round((company.currentDebt / company.creditLimit) * 100));
+    };
+
+    // Thêm Doanh Nghiệp Mới (Company Level)
+    const handleAddCompany = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newCompanyName.trim() || !newTaxCode.trim()) return;
+
+        const newCompany: CompanyDebt = {
+            id: `c-0${companies.length + 1}`,
+            companyName: newCompanyName.trim(),
+            taxCode: newTaxCode.trim(),
+            accountCode: newAccountCode.trim() || `CORP-${Date.now().toString().slice(-4)}`,
+            creditLimit: Number(newCreditLimit),
+            currentDebt: 0,
+            contactPerson: newContactPerson.trim(),
+            contactPhone: newContactPhone.trim(),
+            status: 'ACTIVE'
+        };
+
+        setCompanies(prev => [...prev, newCompany]);
+        setSelectedCompany(newCompany);
+        setShowAddCompanyModal(false);
+        setNewCompanyName('');
+        setNewTaxCode('');
+        setNewAccountCode('');
+        setNewContactPerson('');
+        setNewContactPhone('');
+        setToastMessage(`🏢 Đã thêm doanh nghiệp [${newCompany.companyName}] thành công!`);
+        setTimeout(() => setToastMessage(null), 3000);
+    };
+
+    // Thêm Thành Viên Mới (Member Level)
+    const handleAddMember = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedCompany || !newMemberName.trim() || !newMemberEmail.trim()) return;
+
+        const newMem: CorporateMember = {
+            id: `mem-${Date.now().toString().slice(-4)}`,
+            companyId: selectedCompany.id,
+            companyName: selectedCompany.companyName,
+            fullName: newMemberName.trim(),
+            email: newMemberEmail.trim(),
+            phone: newMemberPhone.trim(),
+            department: newMemberDept.trim(),
+            quotaType: newMemberQuotaType,
+            quotaLimit: Number(newMemberQuotaLimit),
+            quotaUsed: 0,
+            resetCycle: newMemberResetCycle,
+            status: 'ACTIVE'
+        };
+
+        setMembers(prev => [...prev, newMem]);
+        setShowAddMemberModal(false);
+        setNewMemberName('');
+        setNewMemberEmail('');
+        setNewMemberPhone('');
+        setToastMessage(`👤 Đã liên kết thành viên [${newMem.fullName}] vào [${selectedCompany.companyName}]!`);
+        setTimeout(() => setToastMessage(null), 3000);
+    };
+
+    // Cập nhật Hạn mức thành viên
+    const handleSaveMemberQuota = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editingMemberQuota) return;
+
+        setMembers(prev =>
+            prev.map(m =>
+                m.id === editingMemberQuota.id
+                    ? {
+                          ...m,
+                          quotaLimit: Number(editQuotaLimit),
+                          resetCycle: editResetCycle,
+                          status: Number(editQuotaLimit) <= m.quotaUsed ? 'SUSPENDED' : 'ACTIVE'
+                      }
+                    : m
+            )
+        );
+
+        setToastMessage(`⚙️ Đã cập nhật hạn mức mới cho [${editingMemberQuota.fullName}] thành công!`);
+        setEditingMemberQuota(null);
+        setTimeout(() => setToastMessage(null), 3000);
     };
 
     // Kiểm tra tính hợp lệ trước khi tạo booking công nợ
@@ -86,10 +319,28 @@ function CorporateDebtsPage() {
 
         if (!selectedCompany) return;
 
+        // Nếu có chọn thành viên, kiểm tra thêm hạn mức thành viên (Member Quota Guard)
+        if (selectedMember) {
+            if (selectedMember.status === 'SUSPENDED') {
+                setBookingError(
+                    `LỖI MEMBER_QUOTA_EXCEEDED (HTTP 422): Tài khoản thành viên [${selectedMember.fullName}] đã bị tạm khóa hạn mức sử dụng.`
+                );
+                return;
+            }
+            if (selectedMember.quotaType === 'CREDIT' && selectedMember.quotaUsed + bookingAmount > selectedMember.quotaLimit) {
+                setBookingError(
+                    `LỖI MEMBER_CREDIT_EXCEEDED (HTTP 422): Hạn mức thành viên còn lại (${formatVND(
+                        selectedMember.quotaLimit - selectedMember.quotaUsed
+                    )}) không đủ cho đơn ${formatVND(bookingAmount)}. Cần chuyển sang thanh toán trả trước hoặc tiền mặt.`
+                );
+                return;
+            }
+        }
+
         const newDebt = selectedCompany.currentDebt + bookingAmount;
         if (newDebt > selectedCompany.creditLimit) {
             setBookingError(
-                `LỖI CREDIT_LIMIT_EXCEEDED (HTTP 422): Hạn mức khả dụng (${formatVND(
+                `LỖI CREDIT_LIMIT_EXCEEDED (HTTP 422): Hạn mức công ty khả dụng (${formatVND(
                     selectedCompany.creditLimit - selectedCompany.currentDebt
                 )}) không đủ cho đơn đặt phòng (${formatVND(bookingAmount)}). Tổng dư nợ mới (${formatVND(
                     newDebt
@@ -98,7 +349,7 @@ function CorporateDebtsPage() {
             return;
         }
 
-        // Cập nhật công nợ thành công
+        // Cập nhật công nợ công ty
         setCompanies(prev =>
             prev.map(c =>
                 c.id === selectedCompany.id
@@ -111,8 +362,37 @@ function CorporateDebtsPage() {
             )
         );
 
+        // Cập nhật hạn mức thành viên nếu có
+        if (selectedMember) {
+            setMembers(prev =>
+                prev.map(m =>
+                    m.id === selectedMember.id
+                        ? {
+                              ...m,
+                              quotaUsed: m.quotaType === 'CREDIT' ? m.quotaUsed + bookingAmount : m.quotaUsed + 1
+                          }
+                        : m
+                )
+            );
+
+            // Ghi log lịch sử sử dụng
+            const newLog: MemberUsageLog = {
+                id: `log-${Date.now().toString().slice(-4)}`,
+                memberId: selectedMember.id,
+                memberName: selectedMember.fullName,
+                companyName: selectedCompany.companyName,
+                roomName: bookingRoomName,
+                bookingTime: `${new Date().toISOString().split('T')[0]} 14:00 - 16:00`,
+                actualCheckIn: 'Vừa check-in',
+                actualCheckOut: 'Đang sử dụng',
+                consumedQuota: formatVND(bookingAmount),
+                status: 'COMPLETED'
+            };
+            setUsageLogs(prev => [newLog, ...prev]);
+        }
+
         setBookingSuccess(
-            `Tạo đơn công nợ CONFIRMED_DEBT thành công! Mã đơn: BKG-CORP-${Date.now().toString().slice(-5)}. Dư nợ mới: ${formatVND(newDebt)}.`
+            `Tạo đơn công nợ CONFIRMED_DEBT thành công! Mã đơn: BKG-CORP-${Date.now().toString().slice(-5)}. Dư nợ công ty mới: ${formatVND(newDebt)}.`
         );
     };
 
@@ -131,6 +411,8 @@ function CorporateDebtsPage() {
                 return c;
             })
         );
+        setToastMessage(`💵 Đã quyết toán thành công ${formatVND(settleAmount)} cho doanh nghiệp!`);
+        setTimeout(() => setToastMessage(null), 3000);
     };
 
     return (
