@@ -68,11 +68,39 @@ export default function CalendarGrid({
     onRefresh
 }: CalendarGridProps) {
     const [liveRooms, setLiveRooms] = useState<RoomItem[]>([]);
+    const [persistedBookedSlotIds, setPersistedBookedSlotIds] = useState<Set<string>>(() => {
+        if (typeof window === 'undefined') return new Set();
+        try {
+            const raw = localStorage.getItem('smart_booking_booked_slots_v1');
+            if (!raw) return new Set();
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? new Set(parsed) : new Set();
+        } catch {
+            return new Set();
+        }
+    });
 
     useEffect(() => {
         setLiveRooms(roomStore.getRooms());
         const unsubscribe = roomStore.subscribe((updated) => setLiveRooms(updated));
-        return () => unsubscribe();
+
+        const handleSync = () => {
+            try {
+                const raw = localStorage.getItem('smart_booking_booked_slots_v1');
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) setPersistedBookedSlotIds(new Set(parsed));
+                }
+            } catch {}
+        };
+        window.addEventListener('smart_booking_booked_slots_changed', handleSync);
+        window.addEventListener('storage', handleSync);
+
+        return () => {
+            unsubscribe();
+            window.removeEventListener('smart_booking_booked_slots_changed', handleSync);
+            window.removeEventListener('storage', handleSync);
+        };
     }, []);
 
     const effectiveRooms = rooms && rooms.length > 0 ? rooms : liveRooms;
@@ -92,6 +120,9 @@ export default function CalendarGrid({
         const res: GridSlot[] = [];
         effectiveRooms.forEach((r, rIdx) => {
             TIME_COLUMNS.forEach((hour, hIdx) => {
+                const slotKey = `slot-${r.id}-${date}-${hour}`;
+                const isBookedViaStore = persistedBookedSlotIds.has(slotKey) || persistedBookedSlotIds.has(`grid-slot-${r.id}-${hour}`);
+
                 if (!r.isActive) {
                     res.push({
                         id: `grid-slot-${r.id}-${hour}`,
@@ -99,6 +130,18 @@ export default function CalendarGrid({
                         startTime: `${date}T${hour}:00`,
                         endTime: `${date}T${parseInt(hour.split(':')[0]) + 1}:00:00`,
                         status: 'MAINTENANCE'
+                    });
+                } else if (isBookedViaStore) {
+                    res.push({
+                        id: `grid-slot-${r.id}-${hour}`,
+                        roomId: r.id,
+                        startTime: `${date}T${hour}:00`,
+                        endTime: `${date}T${parseInt(hour.split(':')[0]) + 1}:00:00`,
+                        status: 'CONFIRMED_PAID',
+                        bookingCode: 'BKG-CASH-PAID',
+                        customerName: 'Khách Đặt Tại Quầy',
+                        paymentMethod: 'CASH_ON_ARRIVAL',
+                        totalAmount: r.hourlyRate
                     });
                 } else if (rIdx === 0 && (hIdx === 1 || hIdx === 2)) {
                     res.push({
@@ -148,7 +191,7 @@ export default function CalendarGrid({
             });
         });
         return res;
-    }, [slots, effectiveRooms, date]);
+    }, [slots, effectiveRooms, date, persistedBookedSlotIds]);
 
     // Tìm slot tương ứng với Room và Hour
     const getSlotForHour = (roomId: string, hourStr: string): GridSlot | undefined => {

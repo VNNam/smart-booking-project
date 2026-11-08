@@ -15,6 +15,8 @@ interface StoredBooking {
     bookingCode: string;
     roomId: string;
     slotId: string;
+    startTime?: string;
+    endTime?: string;
     bookingStatus: string;
     paymentMethod: string;
     paymentStatus: string;
@@ -141,6 +143,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             bookingCode,
             roomId,
             slotId: finalSlotId,
+            startTime,
+            endTime,
             bookingStatus: 'CONFIRMED_PAID',
             paymentMethod: 'CASH_ON_ARRIVAL',
             paymentStatus: 'PAID',

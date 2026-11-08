@@ -132,9 +132,73 @@ function CashBookingPage() {
     const [rooms, setRooms] = useState<Room[]>([]);
     const [filterActiveOnly, setFilterActiveOnly] = useState<boolean>(true);
     const [slots, setSlots] = useState<Slot[]>([]);
-    // [BA-FIX CB-06] Lưu các slot đã chốt trong phiên để không bị "hồi sinh" AVAILABLE khi đổi ngày qua lại.
-    // (Giải pháp tạm cho dữ liệu giả lập — đích: GET /slots/available từ CSDL, backlog #7.)
-    const [bookedSlotIds, setBookedSlotIds] = useState<Set<string>>(() => new Set());
+
+    const STORAGE_KEY_BOOKED_SLOTS = 'smart_booking_booked_slots_v1';
+    const EVENT_BOOKED_SLOTS_CHANGED = 'smart_booking_booked_slots_changed';
+
+    // [BA-FIX CB-06] Lưu trữ vĩnh viễn các slot đã chốt vào localStorage và đồng bộ API để KHÔNG bị mất khi F5
+    const [bookedSlotIds, setBookedSlotIds] = useState<Set<string>>(() => {
+        if (typeof window === 'undefined') return new Set();
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY_BOOKED_SLOTS);
+            if (!raw) return new Set();
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? new Set(parsed) : new Set();
+        } catch {
+            return new Set();
+        }
+    });
+
+    // Đồng bộ danh sách slot đã đặt từ API /api/v1/bookings và lắng nghe sự kiện đồng bộ đa tab
+    useEffect(() => {
+        const fetchBookedSlots = async () => {
+            try {
+                const response = await fetch('/api/v1/bookings');
+                if (response.ok) {
+                    const resData = await response.json();
+                    if (resData.data && Array.isArray(resData.data)) {
+                        setBookedSlotIds(prev => {
+                            const next = new Set(prev);
+                            resData.data.forEach((b: any) => {
+                                if (b.slotId) next.add(b.slotId);
+                                if (b.roomId && b.startTime) {
+                                    const hour = b.startTime.split('T')[1]?.slice(0, 5);
+                                    const dPart = b.startTime.split('T')[0];
+                                    if (hour && dPart) {
+                                        next.add(`slot-${b.roomId}-${dPart}-${hour}`);
+                                    }
+                                }
+                            });
+                            try {
+                                localStorage.setItem(STORAGE_KEY_BOOKED_SLOTS, JSON.stringify(Array.from(next)));
+                            } catch {}
+                            return next;
+                        });
+                    }
+                }
+            } catch {}
+        };
+        fetchBookedSlots();
+
+        const handleStorageSync = () => {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY_BOOKED_SLOTS);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) {
+                        setBookedSlotIds(new Set(parsed));
+                    }
+                }
+            } catch {}
+        };
+
+        window.addEventListener(EVENT_BOOKED_SLOTS_CHANGED, handleStorageSync);
+        window.addEventListener('storage', handleStorageSync);
+        return () => {
+            window.removeEventListener(EVENT_BOOKED_SLOTS_CHANGED, handleStorageSync);
+            window.removeEventListener('storage', handleStorageSync);
+        };
+    }, []);
 
     // Tải và lắng nghe cập nhật phòng theo thời gian thực từ persistent store
     useEffect(() => {
@@ -308,12 +372,23 @@ function CashBookingPage() {
         return startMinutes > liveNow.minutesOfDay;
     };
 
-    /** Chốt slot thành BOOKED trên giao diện (đồng bộ ngay sau khi giao dịch hoàn tất). */
-    const markSlotBooked = (slotId: string) => {
+    /** Chốt slot thành BOOKED trên giao diện và lưu vĩnh viễn vào localStorage để không mất khi F5 */
+    const markSlotBooked = (slotId: string, additionalSlotId?: string) => {
         // Bỏ chọn trước để effect không coi slot vừa chốt là "không còn khả dụng"
         setSelectedSlot(null);
-        setSlots(prev => prev.map(s => (s.id === slotId ? { ...s, status: 'BOOKED' } : s)));
-        setBookedSlotIds(prev => new Set(prev).add(slotId));
+        setSlots(prev => prev.map(s => (s.id === slotId || (additionalSlotId && s.id === additionalSlotId) ? { ...s, status: 'BOOKED' } : s)));
+        setBookedSlotIds(prev => {
+            const next = new Set(prev);
+            next.add(slotId);
+            if (additionalSlotId) next.add(additionalSlotId);
+            try {
+                localStorage.setItem(STORAGE_KEY_BOOKED_SLOTS, JSON.stringify(Array.from(next)));
+                window.dispatchEvent(new CustomEvent(EVENT_BOOKED_SLOTS_CHANGED, { detail: Array.from(next) }));
+            } catch (e) {
+                console.error('Không thể lưu bookedSlotIds vào localStorage', e);
+            }
+            return next;
+        });
         idempotencyKeyRef.current = null;
     };
 
@@ -404,8 +479,8 @@ function CashBookingPage() {
                     createdAt: data.createdAt || new Date().toISOString()
                 });
 
-                // Cập nhật trạng thái slot trên giao diện sang BOOKED
-                markSlotBooked(bookedSlot.id);
+                // Cập nhật trạng thái slot trên giao diện sang BOOKED và lưu vĩnh viễn
+                markSlotBooked(bookedSlot.id, data?.slotId);
             } else if (MOCK_API_ENABLED && response.status === 404) {
                 // Chỉ dành cho môi trường demo không có backend (NEXT_PUBLIC_MOCK_API=true)
                 setSuccessReceipt(buildMockReceipt());
