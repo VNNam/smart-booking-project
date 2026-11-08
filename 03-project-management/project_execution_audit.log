@@ -185,3 +185,20 @@
   * 21/21 Unit Tests PASSED across 3 test suites (`cash_booking_walkin.test.ts` with TC 2.3 for `r-1794125428360`).
   * Next.js build compiled all routes including `ƒ /api/v1/bookings` with 0 errors (Exit Code 0).
 - Status: PRODUCTION_READY_AND_VERIFIED.
+
+---
+[2026-11-08 22:03:00] [FIX-F5-PERSISTENT-BOOKED-SLOTS-COMPLETE] [SA_Agent & Dev_Agent & QA_Agent]
+- Problem Reported: Sau khi thu tiền mặt thành công, khi người dùng F5 tải lại trang, khung giờ đã đặt bị hoàn nguyên về trạng thái "Còn trống" (AVAILABLE) thay vì giữ nguyên "Đã đặt" (BOOKED).
+- Root Cause Identified:
+  1. `frontend/admin/pages/cash-booking.tsx` chỉ lưu `bookedSlotIds` trong React component state (`useState<Set<string>>(() => new Set())`). Khi F5, state bị reset về tập rỗng.
+  2. Trang không đọc dữ liệu đã đặt từ `localStorage` cũng như không fetch danh sách booking từ API `GET /api/v1/bookings`.
+  3. Master Calendar Grid (`CalendarGrid.tsx`) không đồng bộ với các slot thu tiền mặt tại quầy.
+- Solutions Applied:
+  1. Added persistent storage: `STORAGE_KEY_BOOKED_SLOTS = 'smart_booking_booked_slots_v1'`. `bookedSlotIds` được khởi tạo trực tiếp từ `localStorage`.
+  2. Implemented background sync via `GET /api/v1/bookings` on page load to hydrate server-side bookings into client state and localStorage.
+  3. Updated `markSlotBooked(slotId, additionalSlotId)` to persist immediately to `localStorage` and emit custom cross-tab event `smart_booking_booked_slots_changed`.
+  4. Synchronized `CalendarGrid.tsx`: Master Calendar automatically recognizes booked slots and displays them as `CONFIRMED_PAID`.
+- Verification Results:
+  * Unit Tests: 21/21 PASSED.
+  * Next.js build: 12 static routes + 3 dynamic API routes compiled cleanly with 0 errors.
+- Status: PRODUCTION_READY_AND_VERIFIED.
