@@ -259,6 +259,15 @@ describe('QuotaService & AccountingService Unit Tests', () => {
             expect(report.cashDrawer.totalCashOut).toBe(200000);
             expect(report.cashDrawer.netCashInDrawer).toBe(500000);
             expect(report.summary.totalQuotaCreditAmount).toBe(1200000);
+            expect(report.dailyCashSummary).toHaveLength(1);
+            expect(report.dailyCashSummary[0]).toEqual({
+                date: '2026-11-08',
+                cashInAmount: 700000,
+                cashInCount: 1,
+                cashOutAmount: 200000,
+                cashOutCount: 1,
+                netAmount: 500000
+            });
         });
     });
 });

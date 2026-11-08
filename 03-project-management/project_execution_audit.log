@@ -202,3 +202,22 @@
   * Unit Tests: 21/21 PASSED.
   * Next.js build: 12 static routes + 3 dynamic API routes compiled cleanly with 0 errors.
 - Status: PRODUCTION_READY_AND_VERIFIED.
+
+---
+[2026-11-08 22:25:30] [ACCOUNTING-DAILY-CASH-STATISTICS-COMPLETE] [SA_Agent & Dev_Agent & QA_Agent]
+- User Requirement: Bổ sung tính năng thống kê thu tiền mặt theo từng ngày trong màn hình Kế toán & Đối soát (`/admin/accounting`).
+- Backend Implementations:
+  * Enhanced `AccountingService.ts` with `DailyCashSummaryItem` and computed group-by-date breakdown `dailyCashSummary` in `ReconciliationReportResult`.
+  * Grouped `cash_book_logs` by `shift_date` / `date`, calculating `cashInAmount`, `cashInCount`, `cashOutAmount`, `cashOutCount`, and `netAmount`.
+  * Verified with unit test in `test/services/quota_accounting.test.ts`.
+- Frontend Web Admin Implementations:
+  * Upgraded `frontend/admin/pages/admin/accounting.tsx` with:
+    1. Automatic hydration of real cash bookings from `/api/v1/bookings` and persistent `localStorage['smart_booking_cash_logs_v1']`.
+    2. Date Range Filter integration: Automatically groups filtered cash logs by date within `[startDate]` - `[endDate]`.
+    3. Added 4 Financial KPI summary cards for cash operations (Total Cash In, Total Cash Out, Net Cash, Number of operating days).
+    4. Added **Bảng Thống Kê Tổng Hợp Thu Tiền Mặt Theo Từng Ngày (Daily Cash Collection Summary Table)** with day-by-day rows and full column totals.
+    5. Maintained the detailed **Sổ Quỹ Tiền Mặt Chi Tiết (Cash Drawer Log Details)**.
+- Verification Results:
+  * 21/21 Unit Tests PASSED.
+  * Next.js production build compiled 12 static routes + 3 API routes successfully (Exit Code 0).
+- Status: PRODUCTION_READY_AND_VERIFIED.

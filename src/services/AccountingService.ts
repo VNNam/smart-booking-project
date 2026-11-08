@@ -39,6 +39,15 @@ export interface UnifiedReconciliationItem {
     memberName?: string;
 }
 
+export interface DailyCashSummaryItem {
+    date: string; // YYYY-MM-DD
+    cashInAmount: number;
+    cashInCount: number;
+    cashOutAmount: number;
+    cashOutCount: number;
+    netAmount: number;
+}
+
 export interface CashDrawerSummary {
     totalCashIn: number;
     totalCashOut: number;
@@ -60,6 +69,7 @@ export interface ReconciliationReportResult {
         totalTransactions: number;
     };
     cashDrawer: CashDrawerSummary;
+    dailyCashSummary: DailyCashSummaryItem[];
     items: UnifiedReconciliationItem[];
 }
 
@@ -175,17 +185,37 @@ export class AccountingService {
             });
         }
 
-        // Hợp nhất Tiền mặt tại quầy
+        // Hợp nhất Tiền mặt tại quầy & Thống kê theo ngày
         let totalCashIn = 0;
         let totalCashOut = 0;
+        const dailyCashMap = new Map<string, DailyCashSummaryItem>();
 
         for (const row of cashRes.rows) {
             const amount = parseFloat(row.amount);
+            const dateStr = row.shift_date ? String(row.shift_date).slice(0, 10) : new Date(row.created_at).toISOString().slice(0, 10);
+
+            if (!dailyCashMap.has(dateStr)) {
+                dailyCashMap.set(dateStr, {
+                    date: dateStr,
+                    cashInAmount: 0,
+                    cashInCount: 0,
+                    cashOutAmount: 0,
+                    cashOutCount: 0,
+                    netAmount: 0
+                });
+            }
+            const dayStat = dailyCashMap.get(dateStr)!;
+
             if (row.entry_type === 'CASH_IN_COLLECT') {
                 totalCashIn += amount;
+                dayStat.cashInAmount += amount;
+                dayStat.cashInCount += 1;
             } else {
                 totalCashOut += amount;
+                dayStat.cashOutAmount += amount;
+                dayStat.cashOutCount += 1;
             }
+            dayStat.netAmount = dayStat.cashInAmount - dayStat.cashOutAmount;
 
             if (channel === 'ALL' || channel === 'CASH') {
                 const isCollect = row.entry_type === 'CASH_IN_COLLECT';
@@ -240,6 +270,7 @@ export class AccountingService {
         }
 
         const totalRevenue = totalOnline + totalWallet + totalCashIn + totalQuotaCreditAmount;
+        const dailyCashSummary = Array.from(dailyCashMap.values()).sort((a, b) => b.date.localeCompare(a.date));
 
         return {
             from,
@@ -260,6 +291,7 @@ export class AccountingService {
                 netCashInDrawer: totalCashIn - totalCashOut,
                 transactionCount: cashRes.rows.length
             },
+            dailyCashSummary,
             items
         };
     }

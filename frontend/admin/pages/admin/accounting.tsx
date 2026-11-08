@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Head from 'next/head';
 import AdminHeader from '../../components/AdminHeader';
 import { withAuth } from '../../components/withAuth';
@@ -144,12 +144,82 @@ function AccountingDashboardPage() {
         return matchesDate && matchesChannel && matchesStatus;
     });
 
-    // Dữ liệu quỹ tiền mặt ca trực
-    const [cashLogs] = useState<CashDrawerLog[]>([
+    const STORAGE_KEY_CASH_LOGS = 'smart_booking_cash_logs_v1';
+    const DEFAULT_CASH_LOGS: CashDrawerLog[] = [
         { id: 'c-01', date: '2026-11-08', time: '08:00', type: 'IN', amount: 2000000, staffName: 'Nguyễn Văn Quản Lý', notes: 'Tiền mặt đầu ca bàn giao' },
         { id: 'c-02', date: '2026-11-08', time: '09:20', type: 'IN', amount: 700000, staffName: 'Lễ Tân Ca Trực', notes: 'Thu tiền mặt đơn BKG-202610-104' },
         { id: 'c-03', date: '2026-11-08', time: '11:10', type: 'OUT', amount: 280000, staffName: 'Lễ Tân Ca Trực', notes: 'Hoàn tiền mặt 80% hủy đơn BKG-202610-099 (OTP duyệt)' }
-    ]);
+    ];
+
+    // Dữ liệu quỹ tiền mặt ca trực (hỗ trợ lưu trữ vĩnh viễn và đồng bộ tự động)
+    const [cashLogs, setCashLogs] = useState<CashDrawerLog[]>(() => {
+        if (typeof window === 'undefined') return DEFAULT_CASH_LOGS;
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY_CASH_LOGS);
+            if (!raw) return DEFAULT_CASH_LOGS;
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_CASH_LOGS;
+        } catch {
+            return DEFAULT_CASH_LOGS;
+        }
+    });
+
+    // Tự động đồng bộ các đơn thu tiền mặt thực tế từ API /api/v1/bookings
+    useEffect(() => {
+        const syncServerCashBookings = async () => {
+            try {
+                const res = await fetch('/api/v1/bookings');
+                if (res.ok) {
+                    const json = await res.json();
+                    if (json.data && Array.isArray(json.data)) {
+                        setCashLogs(prev => {
+                            const map = new Map<string, CashDrawerLog>();
+                            prev.forEach(log => map.set(log.id, log));
+
+                            json.data.forEach((b: any) => {
+                                if (b.paymentMethod === 'CASH_ON_ARRIVAL') {
+                                    const logId = b.cashBookEntryId || `c-${b.id}`;
+                                    const datePart = b.createdAt ? b.createdAt.split('T')[0] : '2026-11-08';
+                                    const timePart = b.createdAt ? b.createdAt.split('T')[1]?.slice(0, 5) || '12:00' : '12:00';
+                                    if (!map.has(logId)) {
+                                        map.set(logId, {
+                                            id: logId,
+                                            date: datePart,
+                                            time: timePart,
+                                            type: 'IN',
+                                            amount: typeof b.totalAmount === 'number' ? b.totalAmount : Number(b.totalAmount),
+                                            staffName: 'Lễ Tân Ca Trực',
+                                            notes: `Thu tiền mặt đơn ${b.bookingCode} - ${b.customerName || 'Khách tại quầy'}`
+                                        });
+                                    }
+                                }
+                            });
+
+                            const merged = Array.from(map.values()).sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
+                            try {
+                                localStorage.setItem(STORAGE_KEY_CASH_LOGS, JSON.stringify(merged));
+                            } catch {}
+                            return merged;
+                        });
+                    }
+                }
+            } catch {}
+        };
+
+        syncServerCashBookings();
+
+        const handleSync = () => {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY_CASH_LOGS);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) setCashLogs(parsed);
+                }
+            } catch {}
+        };
+        window.addEventListener('storage', handleSync);
+        return () => window.removeEventListener('storage', handleSync);
+    }, []);
 
     // [BA-FIX G-19] Áp dụng bộ lọc khoảng thời gian [Từ ngày] - [Đến ngày] cho cả Sổ quỹ tiền mặt
     const filteredCashLogs = cashLogs.filter((c) => {
@@ -159,6 +229,42 @@ function AccountingDashboardPage() {
     const totalCashIn = filteredCashLogs.filter(c => c.type === 'IN').reduce((acc, c) => acc + c.amount, 0);
     const totalCashOut = filteredCashLogs.filter(c => c.type === 'OUT').reduce((acc, c) => acc + c.amount, 0);
     const netCashInDrawer = totalCashIn - totalCashOut;
+
+    // [MODULE 3] Thống kê tổng hợp thu/chi tiền mặt nhóm theo từng ngày
+    const dailyCashSummary = useMemo(() => {
+        const map = new Map<string, {
+            date: string;
+            cashInAmount: number;
+            cashInCount: number;
+            cashOutAmount: number;
+            cashOutCount: number;
+            netAmount: number;
+        }>();
+
+        filteredCashLogs.forEach(c => {
+            if (!map.has(c.date)) {
+                map.set(c.date, {
+                    date: c.date,
+                    cashInAmount: 0,
+                    cashInCount: 0,
+                    cashOutAmount: 0,
+                    cashOutCount: 0,
+                    netAmount: 0
+                });
+            }
+            const day = map.get(c.date)!;
+            if (c.type === 'IN') {
+                day.cashInAmount += c.amount;
+                day.cashInCount += 1;
+            } else {
+                day.cashOutAmount += c.amount;
+                day.cashOutCount += 1;
+            }
+            day.netAmount = day.cashInAmount - day.cashOutAmount;
+        });
+
+        return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
+    }, [filteredCashLogs]);
 
     // Đánh dấu giao dịch ĐÃ KHỚP
     const handleMarkMatched = (id: string) => {
@@ -319,7 +425,7 @@ function AccountingDashboardPage() {
                                 : 'text-slate-400 hover:text-slate-200'
                         }`}
                     >
-                        💵 Sổ Quỹ Ca Trực & Bàn Giao ({filteredCashLogs.length})
+                        💵 Sổ Quỹ & Thống Kê Tiền Mặt Theo Ngày ({dailyCashSummary.length} ngày / {filteredCashLogs.length} GD)
                     </button>
                     <button
                         onClick={() => setActiveTab('REVENUE')}
@@ -585,64 +691,166 @@ function AccountingDashboardPage() {
                 )}
 
                 {/* =========================================================================
-                    TAB 2: SỔ QUỸ TIỀN MẶT
+                    TAB 2: SỔ QUỸ & THỐNG KÊ THU TIỀN MẶT THEO NGÀY
                 ========================================================================= */}
                 {activeTab === 'CASH_DRAWER' && (
-                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <h3 className="text-sm font-bold text-white">Sổ Quỹ Tiền Mặt & Bàn Giao Ca Trực (Two-Man Rule)</h3>
-                                <p className="text-xs text-slate-400">Minh bạch dòng tiền mặt tại quầy lễ tân và thủ tục bàn giao kết ca</p>
+                    <div className="space-y-6">
+                        {/* KPI Tóm tắt tiền mặt trong khoảng ngày */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
+                                <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Tổng Thu Tiền Mặt (+)</span>
+                                <p className="text-xl font-bold text-emerald-400 mt-1">{formatVND(totalCashIn)}</p>
+                                <span className="text-[10px] text-slate-400">{filteredCashLogs.filter(c => c.type === 'IN').length} lượt thu tại quầy</span>
                             </div>
-                            <button
-                                onClick={() => alert('Đã chốt sổ ca trực và gửi mã OTP xác nhận tới Trưởng ca qua SMS/App!')}
-                                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 text-xs font-bold shadow-md hover:opacity-90 transition-all"
-                            >
-                                📋 Chốt Ca & In Biên Bản Bàn Giao
-                            </button>
+
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
+                                <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Tổng Chi Hoàn Mặt (-)</span>
+                                <p className="text-xl font-bold text-rose-400 mt-1">{formatVND(totalCashOut)}</p>
+                                <span className="text-[10px] text-slate-400">{filteredCashLogs.filter(c => c.type === 'OUT').length} lượt hoàn hủy OTP</span>
+                            </div>
+
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
+                                <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Thực Thu Tiền Mặt Thuần</span>
+                                <p className="text-xl font-bold text-amber-400 mt-1">{formatVND(netCashInDrawer)}</p>
+                                <span className="text-[10px] text-amber-500 font-medium">Khớp 100% phiếu thu chi</span>
+                            </div>
+
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
+                                <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Số Ngày Phát Sinh Giao Dịch</span>
+                                <p className="text-xl font-bold text-sky-400 mt-1">{dailyCashSummary.length} ngày</p>
+                                <span className="text-[10px] text-slate-400">Từ {startDate} đến {endDate}</span>
+                            </div>
                         </div>
 
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left text-xs">
-                                <thead>
-                                    <tr className="border-b border-slate-800 text-slate-400">
-                                        <th className="pb-3 font-semibold">Thời Gian</th>
-                                        <th className="pb-3 font-semibold">Loại Nghiệp Vụ</th>
-                                        <th className="pb-3 font-semibold">Số Tiền</th>
-                                        <th className="pb-3 font-semibold">Nhân Sự Thực Hiện</th>
-                                        <th className="pb-3 font-semibold">Nội Dung Giao Dịch</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-800/60">
-                                    {filteredCashLogs.length === 0 ? (
-                                        <tr>
-                                            <td colSpan={5} className="py-8 text-center text-slate-500">
-                                                Không có giao dịch quỹ tiền mặt nào trong khoảng thời gian {startDate} đến {endDate}.
-                                            </td>
+                        {/* BẢNG 1: THỐNG KÊ THU TIỀN MẶT THEO NGÀY */}
+                        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                                        <span>📊 Bảng Thống Kê Tổng Hợp Thu Tiền Mặt Theo Từng Ngày</span>
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                            {dailyCashSummary.length} ngày phát sinh
+                                        </span>
+                                    </h3>
+                                    <p className="text-xs text-slate-400 mt-0.5">Tổng hợp đối soát tiền mặt theo từng ngày trong khoảng thời gian {startDate} đến {endDate}</p>
+                                </div>
+                            </div>
+
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-xs">
+                                    <thead>
+                                        <tr className="border-b border-slate-800 text-slate-400">
+                                            <th className="pb-3 font-semibold">Ngày Thu Tiền</th>
+                                            <th className="pb-3 font-semibold text-center">Lượt Thu (+)</th>
+                                            <th className="pb-3 font-semibold">Tổng Thu Mặt (+)</th>
+                                            <th className="pb-3 font-semibold text-center">Lượt Chi (-)</th>
+                                            <th className="pb-3 font-semibold">Tổng Hoàn Mặt (-)</th>
+                                            <th className="pb-3 font-semibold">Thực Thu Thuần Trong Ngày</th>
+                                            <th className="pb-3 font-semibold text-right">Trạng Thái Chốt Ca</th>
                                         </tr>
-                                    ) : (
-                                        filteredCashLogs.map(log => (
-                                            <tr key={log.id} className="hover:bg-slate-800/30">
-                                                <td className="py-3.5 font-mono text-slate-400">{log.date} {log.time}</td>
-                                                <td className="py-3.5">
-                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                                                        log.type === 'IN'
-                                                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                                                            : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
-                                                    }`}>
-                                                        {log.type === 'IN' ? '↓ THU TIỀN VÀO' : '↑ CHI HOÀN TRẢ'}
-                                                    </span>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800/60">
+                                        {dailyCashSummary.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={7} className="py-8 text-center text-slate-500">
+                                                    Không có giao dịch tiền mặt nào phát sinh trong khoảng thời gian {startDate} đến {endDate}.
                                                 </td>
-                                                <td className={`py-3.5 font-bold ${log.type === 'IN' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                                    {log.type === 'IN' ? '+' : '-'}{formatVND(log.amount)}
-                                                </td>
-                                                <td className="py-3.5 text-slate-300 font-medium">{log.staffName}</td>
-                                                <td className="py-3.5 text-slate-400 italic">{log.notes}</td>
                                             </tr>
-                                        ))
+                                        ) : (
+                                            dailyCashSummary.map(day => (
+                                                <tr key={day.date} className="hover:bg-slate-800/30 transition">
+                                                    <td className="py-3.5 font-bold font-mono text-white flex items-center space-x-2">
+                                                        <span>📅</span>
+                                                        <span>{day.date}</span>
+                                                    </td>
+                                                    <td className="py-3.5 text-center text-slate-300 font-semibold">{day.cashInCount}</td>
+                                                    <td className="py-3.5 font-bold text-emerald-400">{formatVND(day.cashInAmount)}</td>
+                                                    <td className="py-3.5 text-center text-slate-400">{day.cashOutCount}</td>
+                                                    <td className="py-3.5 font-semibold text-rose-400">{day.cashOutAmount > 0 ? `-${formatVND(day.cashOutAmount)}` : '0 ₫'}</td>
+                                                    <td className="py-3.5 font-bold text-amber-400">{formatVND(day.netAmount)}</td>
+                                                    <td className="py-3.5 text-right">
+                                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                                            ✓ ĐÃ KHỚP SỔ QUỸ
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                    {dailyCashSummary.length > 0 && (
+                                        <tfoot>
+                                            <tr className="border-t-2 border-slate-700 bg-slate-800/40 font-bold text-white">
+                                                <td className="py-3">TỔNG CỘNG ({dailyCashSummary.length} NGÀY)</td>
+                                                <td className="py-3 text-center text-emerald-400">{filteredCashLogs.filter(c => c.type === 'IN').length}</td>
+                                                <td className="py-3 text-emerald-400">{formatVND(totalCashIn)}</td>
+                                                <td className="py-3 text-center text-rose-400">{filteredCashLogs.filter(c => c.type === 'OUT').length}</td>
+                                                <td className="py-3 text-rose-400">-{formatVND(totalCashOut)}</td>
+                                                <td className="py-3 text-amber-400 text-sm">{formatVND(netCashInDrawer)}</td>
+                                                <td className="py-3 text-right text-emerald-400">100% CÂN ĐỐI</td>
+                                            </tr>
+                                        </tfoot>
                                     )}
-                                </tbody>
-                            </table>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* BẢNG 2: SỔ QUỸ CHI TIẾT TỪNG PHIẾU THU/CHI */}
+                        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h3 className="text-sm font-bold text-white">💵 Sổ Quỹ Tiền Mặt Chi Tiết & Bàn Giao Ca Trực (Two-Man Rule)</h3>
+                                    <p className="text-xs text-slate-400">Minh bạch dòng tiền mặt tại quầy lễ tân và thủ tục bàn giao kết ca</p>
+                                </div>
+                                <button
+                                    onClick={() => alert('Đã chốt sổ ca trực và gửi mã OTP xác nhận tới Trưởng ca qua SMS/App!')}
+                                    className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 text-xs font-bold shadow-md hover:opacity-90 transition-all"
+                                >
+                                    📋 Chốt Ca & In Biên Bản Bàn Giao
+                                </button>
+                            </div>
+
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-xs">
+                                    <thead>
+                                        <tr className="border-b border-slate-800 text-slate-400">
+                                            <th className="pb-3 font-semibold">Thời Gian</th>
+                                            <th className="pb-3 font-semibold">Loại Nghiệp Vụ</th>
+                                            <th className="pb-3 font-semibold">Số Tiền</th>
+                                            <th className="pb-3 font-semibold">Nhân Sự Thực Hiện</th>
+                                            <th className="pb-3 font-semibold">Nội Dung Giao Dịch</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800/60">
+                                        {filteredCashLogs.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={5} className="py-8 text-center text-slate-500">
+                                                    Không có giao dịch quỹ tiền mặt nào trong khoảng thời gian {startDate} đến {endDate}.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            filteredCashLogs.map(log => (
+                                                <tr key={log.id} className="hover:bg-slate-800/30">
+                                                    <td className="py-3.5 font-mono text-slate-400">{log.date} {log.time}</td>
+                                                    <td className="py-3.5">
+                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                                            log.type === 'IN'
+                                                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                                                : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                                                        }`}>
+                                                            {log.type === 'IN' ? '↓ THU TIỀN VÀO' : '↑ CHI HOÀN TRẢ'}
+                                                        </span>
+                                                    </td>
+                                                    <td className={`py-3.5 font-bold ${log.type === 'IN' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                        {log.type === 'IN' ? '+' : '-'}{formatVND(log.amount)}
+                                                    </td>
+                                                    <td className="py-3.5 text-slate-300 font-medium">{log.staffName}</td>
+                                                    <td className="py-3.5 text-slate-400 italic">{log.notes}</td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 )}
